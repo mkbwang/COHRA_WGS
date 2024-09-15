@@ -3,5 +3,12 @@
 *.RData
 .Ruserdata
 *.csv
+*.tsv
 *.xlsx
 *.Rproj
+*.png
+input_files/
+*.gz
+*_output/
+*.log
+

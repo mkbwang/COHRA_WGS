@@ -1,0 +1,51 @@
+#!/bin/bash
+# The interpreter used to execute the script
+
+#“#SBATCH” directives that convey submission options:
+
+#SBATCH --job-name=saliva_humann_array
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=50g
+#SBATCH --time=22:00:00
+#SBATCH --account=bfoxman0
+#SBATCH --partition=standard
+#SBATCH --output=logs/humann_array-%a.log
+
+ 
+echo "This job in the array has:"
+echo "- SLURM_JOB_ID=${SLURM_JOB_ID}"
+echo "- SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+
+#module load
+#source the conda.sh script in the base users conda environment 
+source /home/wangmk/.bashrc
+micromamba activate biobakery
+
+#set databases
+chocophlan=/nfs/turbo/sph-bfoxman/reference_data/humann_db_v31/chocophlan/
+uniref=/nfs/turbo/sph-bfoxman/reference_data/humann_db_v31/uniref/
+threads=6
+prescreen=0.0001
+#set input and output directory
+in=concat_reads/
+out=humann
+#make sure this is the same single sample you ran in the previous step
+
+#Files for input
+#-1Sr = 1 file per line (-1), sort by size (-S), reversed (smallest to largest, -r)
+#this will allow us to batch submit with lower memory requirements, then increase as needed across larger 
+#and larger files
+FILES1=($(ls -1Sr ${in}*_cat.fq.gz))
+#this line removes the one sample already run from our array of samples 
+FILENAME1=${FILES1[$SLURM_ARRAY_TASK_ID]}
+one_sample=${FILES1[4]}
+one_sample_base=$(basename -s .fq.gz ${one_sample})
+
+humann -i ${FILENAME1} -o ${out} \
+    --nucleotide-database ${out}/${one_sample_base}_humann_temp  \
+    --bypass-nucleotide-index \
+    --protein-database ${uniref} \
+    -v --threads ${threads} \
+    --prescreen-threshold ${prescreen} 
