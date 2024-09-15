@@ -47,14 +47,69 @@ usefulcols <- c("BabySubjectID", "MotherAgeAtExam", "Delivery", "BabySex", "Prim
                 "PlantMilk", "FlavWater", "SportsDrink", "Juice", "Soda", "MealDrink")
 
 selected_metadata_yr1 <- kid_cross12_sample %>% select(usefulcols)
-metadata_yr1 <- metadata_yr1 %>% left_join(selected_metadata_yr1, by="BabySubjectID")
-
 
 selected_metadata_yr2 <- kid_cross24_sample %>% select(usefulcols)
-metadata_yr2 <- metadata_yr2 %>% left_join(selected_metadata_yr2, by="BabySubjectID")
+
+
+othermetadata <- read.csv("metadata/AdditionalCOHRAMetaData.csv")
+othermetadata_yr1 <- othermetadata %>% filter(PhCall == 5) %>% select(BabysubjectID, Breastfed, 
+                                                                      BFCurrent, BFStopMnth)
+colnames(othermetadata_yr1)[1] <- "BabySubjectID"
+othermetadata_yr1[othermetadata_yr1 < 0] <- NA
+
+othermetadata_yr2 <- othermetadata %>% filter(PhCall == 7) %>% select(BabysubjectID, Breastfed, 
+                                                                      BFCurrent, BFStopMnth)
+colnames(othermetadata_yr2)[1] <- "BabySubjectID"
+othermetadata_yr2[othermetadata_yr2 < 0] <- NA
+
+
+metadata_yr1 <- metadata_yr1 %>% left_join(selected_metadata_yr1, by="BabySubjectID") %>%
+  left_join(othermetadata_yr1, by="BabySubjectID")
+
+metadata_yr2 <- metadata_yr2 %>% left_join(selected_metadata_yr2, by="BabySubjectID") %>%
+  left_join(othermetadata_yr2, by="BabySubjectID")
 
 
 write.csv(metadata_yr1, "metadata/metadata_yr1.csv", row.names=FALSE)
 write.csv(metadata_yr2, "metadata/metadata_yr2.csv", row.names=FALSE)
 
+
+metadata_yr1 <- read.csv("metadata/metadata_yr1.csv")
+region <- metadata_yr1$BabySubjectID %/% 1e6
+table(region)
+
+# age
+hist(metadata_yr1$MotherAgeAtExam, nclass=20, xlab="Mother Age", main="Mother Age")
+
+
+# delivery
+table(metadata_yr1$Delivery)
+
+
+# baby sex
+table(metadata_yr1$BabySex)
+
+# primary teeth count
+hist(metadata_yr1$Prim_Tot_Teeth_Present, nclass=20, main="Primary teeth count", xlab="")
+
+
+# diet
+allcols <- colnames(metadata_yr1)
+diet_items <- allcols[9:26]
+diet_items <- diet_items[diet_items != "EatPizza"]
+category_counts <- matrix(0, nrow=length(diet_items), ncol=4)
+na_count <- rep(0, length(diet_items))
+for (j in 1:length(diet_items)){
+  selected_col <- diet_items[j]
+  na_count[j] <- sum(is.na(metadata_yr1[, selected_col]))
+  category_counts[j, ] <- table(metadata_yr1[, selected_col])
+}
+
+diet_summary <- as.data.frame(category_counts, row.names=diet_items)
+colnames(diet_summary) <- c("Every_few_days", "Never_or_once", "Once_a_day", "Several_times_a_day")
+diet_summary$NAs <- na_count
+write.csv(diet_summary, "metadata/diet_survey.csv")
+
+# breast fed
+table(metadata_yr1$Breastfed)
 

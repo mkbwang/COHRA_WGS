@@ -1,0 +1,60 @@
+#!/bin/bash
+# The interpreter used to execute the script
+
+#“#SBATCH” directives that convey submission options:
+
+#SBATCH --job-name=saliva_remove_spikein
+#SBATCH --mail-type=BEGIN,FAIL,END
+#SBATCH --nodes=2
+#SBATCH --array=0-3
+#SBATCH --cpus-per-task=12
+#SBATCH --mem-per-cpu=10g
+#SBATCH --time=22:00:00
+#SBATCH --account=bfoxman0
+#SBATCH --partition=standard
+#SBATCH --output=logs/%x-%a.log
+
+
+
+
+
+
+#module load
+module load Bioinformatics
+module load trimmomatic
+module load fastqc/0.11.9-p6ckgle
+module load bowtie2
+module load samtools
+module load bedtools2
+source ~/.bashrc
+micromamba activate biobakery
+
+#set host chromosome file
+host=/nfs/turbo/sph-bfoxman/reference_data/spikein/combined_spikein
+
+#set input and output directory
+out=./fastq_files/
+
+#Files for input
+readarray -t FILES1 < input_files/FW_file_${SLURM_ARRAY_TASK_ID}
+readarray -t FILES2 < input_files/BW_file_${SLURM_ARRAY_TASK_ID}
+readarray -t FILES3 < input_files/unpaired_file_${SLURM_ARRAY_TASK_ID}
+
+NUMFILES=${#FILES1[@]}
+ZBNUMFILES=$(($NUMFILES - 1))
+
+
+echo "processing ${NUMFILES} files"
+
+for ((i=0; i<=${ZBNUMFILES}; i++)); do
+    F1short=$(basename ${FILES1[$i]})
+    F2short=$(basename ${FILES2[$i]})
+    F3short=$(basename ${FILES3[$i]})
+    FASTQBASENAME=$(echo ${F1short} | cut -d'_' -f1 )
+    echo "Processing $F1short and $F2short and $F3short"
+    if [ -e "fastq_files/${FASTQBASENAME}_R1_paired_decon.fq.gz" ]; then
+	echo "File already exists, skip"
+    else
+        ./metagenomeDecontaminateReads.sh ${FILES1[$i]} ${FILES2[$i]} ${FILES3[$i]} ${host} ${out}
+    fi
+done

@@ -1,0 +1,59 @@
+#!/bin/bash
+# The interpreter used to execute the script
+
+#“#SBATCH” directives that convey submission options:
+
+#SBATCH --job-name=saliva_metaphlan
+#SBATCH --mail-type=END
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=30g
+#SBATCH --time=20:00:00
+#SBATCH --account=bfoxman0
+#SBATCH --partition=standard
+#SBATCH --output=logs/%x-%j.log
+
+#echo "All jobs in this array have:"
+#echo "- SLURM_ARRAY_JOB_ID=${SLURM_ARRAY_JOB_ID}"
+#echo "- SLURM_ARRAY_TASK_COUNT=${SLURM_ARRAY_TASK_COUNT}"
+#echo "- SLURM_ARRAY_TASK_MIN=${SLURM_ARRAY_TASK_MIN}"
+#echo "- SLURM_ARRAY_TASK_MAX=${SLURM_ARRAY_TASK_MAX}"
+ 
+#echo "This job in the array has:"
+#echo "- SLURM_JOB_ID=${SLURM_JOB_ID}"
+#echo "- SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+
+#module load
+source /home/wangmk/.bashrc 
+#source /sw/arcts/centos7/python3.7-anaconda/2019.07/etc/profile.d/conda.sh
+micromamba activate biobakery
+
+export http_proxy=http://proxy.arc-ts.umich.edu:3128/
+export FTP_PROXY=http://proxy.arc-ts.umich.edu:3128/
+export ftp_proxy=http://proxy.arc-ts.umich.edu:3128/
+export HTTPS_PROXY=http://proxy.arc-ts.umich.edu:3128/
+export https_proxy=http://proxy.arc-ts.umich.edu:3128/
+export HTTP_PROXY=http://proxy.arc-ts.umich.edu:3128/
+
+#set variables 
+threads=6
+metaphlan=/nfs/turbo/sph-bfoxman/reference_data/metaphlan_db/mpa4_vJun23/
+index=mpa_vJun23_CHOCOPhlAnSGB_202307
+q_value=0.05
+
+#set input and output directory CHANGE ME 
+in=concat_reads/
+out=metaphlan
+
+
+#Files for input
+FILES1=($(ls -1 ${in}*_cat.fq.gz))
+FILENAME1=${FILES1[$SLURM_ARRAY_TASK_ID]}
+BASENAME=($(basename -s .fq.gz ${FILENAME1}))
+
+
+metaphlan ${FILENAME1} --input_type fastq  -o ${out}/${BASENAME}.txt --bowtie2db ${metaphlan} -x ${index} --nproc ${threads} -t rel_ab_w_read_stats --stat tavg_g --stat_q ${q_value}
+#note, uncomment this line to run with later than  3.0.7 with from bowtie output.... didn't want to update and have be different in middle of run 
+#see https://forum.biobakery.org/t/metaphlan3-bowtie2db-output-files-need-the-size-of-the-metagenome-using-the-nreads-parameter/2006/8
+#metaphlan ${FILENAME1}.bowtie2out.txt --input_type bowtie2out  -o ${out}/${BASENAME}.txt --bowtie2db ${metaphlan} -x ${index} --nproc ${threads} -t rel_ab_w_read_stats --stat tavg_g --stat_q ${q_value}
+
