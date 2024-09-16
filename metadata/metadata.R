@@ -41,7 +41,8 @@ write.csv(subset_synonym, "metadata/synonym_IDs.csv", row.names=FALSE)
 load("metadata/meta_sampling.Rdata")
 
 survey_cols <- colnames(kid_cross12)
-usefulcols <- c("BabySubjectID", "MotherAgeAtExam", "Delivery", "BabySex", "Prim_d1ft", "Prim_Tot_Teeth_Present",
+usefulcols <- c("BabySubjectID", "MotherAgeAtExam", "HouseholdIncome_cat2", "Education_HS", "PERM_D2MFT",
+                "Cigarettes", "Delivery", "BabySex", "Prim_d1ft", "Prim_Tot_Teeth_Present",
                 "EatCereals", "EatCrackers", "EatFruits", "EatPotatoes", "EatOthVeg", "EatCheese",
                 "EatMeat", "EatPizza", "EatChips", "EatDesserts", "EatCandies", "CowAnimalMilk", "PowderMix",
                 "PlantMilk", "FlavWater", "SportsDrink", "Juice", "Soda", "MealDrink")
