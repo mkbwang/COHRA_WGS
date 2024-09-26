@@ -57,6 +57,10 @@ metadata_yr1[, c("MotherAgeAtExam", "HouseholdIncome_cat2",
 write.table(metadata_yr1, file.path("metadata/metadata_yr1_imputed.tsv"),
             sep='\t', row.names=F, quote=F)
 
+
+metadata_yr1 <- read.table("metadata/metadata_yr1_imputed.tsv",
+                           sep='\t', header=1)
+
 # calculate statistics for metadata
 library(dplyr)
 # mother's age
@@ -85,6 +89,12 @@ dmft_model <- lm(PERM_D2MFT ~ Case_status,
                   data=metadata_yr1)
 
 
+# household income
+income_summary <- metadata_yr1 %>% group_by(Case_status, HouseholdIncome_cat2) %>%
+  summarise(count=n())
+count_matrix <- matrix(income_summary$count, ncol=2)
+chisq.test(count_matrix)
+
 # smoking
 smoking_summary <- metadata_yr1 %>% group_by(Case_status, Cigarettes) %>%
   summarise(count=n())
@@ -112,26 +122,34 @@ primtooth_summary <- metadata_yr1 %>% group_by(Case_status) %>%
 primtooth_model <- lm(Prim_Tot_Teeth_Present ~ Case_status,
                  data=metadata_yr1)
 
+# breastfeeding
+breastfed_summary <- metadata_yr1 %>% group_by(Case_status, Breastfed) %>%
+  summarise(count=n())
+count_matrix <- matrix(breastfed_summary$count, nrow=2)
+chisq.test(count_matrix)
 
 # diet
-allcols <- colnames(metadata_yr1)
-diet_items <- allcols[9:26]
-diet_items <- diet_items[diet_items != "EatPizza"]
-category_counts <- matrix(0, nrow=length(diet_items), ncol=4)
-na_count <- rep(0, length(diet_items))
-for (j in 1:length(diet_items)){
-  selected_col <- diet_items[j]
-  na_count[j] <- sum(is.na(metadata_yr1[, selected_col]))
-  category_counts[j, ] <- table(metadata_yr1[, selected_col])
+categorical_testing <- function(covariate) {
+  
+  counts_summary <- metadata_yr1 %>% group_by(Case_status, .data[[covariate]]) %>%
+    summarise(count=n())
+  unique_categories <- unique(metadata_yr1[, covariate])
+  count_matrix <- counts_summary %>%
+    pivot_wider(names_from = covariate, values_from = count)
+  count_matrix[is.na(count_matrix)] <- 0
+  test_result <- chisq.test(count_matrix[, 2:(length(unique_categories) + 1)])
+  test_pval <- test_result$p.value
+  return(list(variable=covariate, contingency_table=count_matrix, test_pval=test_pval))
+
 }
 
-diet_summary <- as.data.frame(category_counts, row.names=diet_items)
-colnames(diet_summary) <- c("Every_few_days", "Never_or_once", "Once_a_day", "Several_times_a_day")
-diet_summary$NAs <- na_count
-write.csv(diet_summary, "metadata/diet_survey.csv")
+diet_variables <- colnames(metadata_yr1)[12: 29]
 
-# breast fed
-table(metadata_yr1$Breastfed)
+diet_tests <- list()
 
+for (j in 1:length(diet_variables)){
+  
+  diet_tests[[length(diet_tests) + 1]] <- categorical_testing(diet_variables[j])
 
+}
 
