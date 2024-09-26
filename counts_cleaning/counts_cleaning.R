@@ -19,7 +19,7 @@ ID_matching <- rbind(ID_matching_yr1, ID_matching_yr2)
 metadata_yr1 <- read.csv(file.path("metadata", "metadata_yr1.csv"))
 metadata_yr2 <- read.csv(file.path("metadata", "metadata_yr2.csv"))
 
-# taxa counts
+# combine taxa counts
 
 load_counts <- function(fname, folder){
   
@@ -57,52 +57,8 @@ combine_counts("saliva_preprocessing")
 combine_counts("plaque_preprocessing")
 
 
-# # pathway abundances
-# 
-# load_pathabundance <- function(fname, folder){
-#   
-#   sampleID <- strsplit(fname, split="_")[[1]][1]
-#   abundance_table_indv <- read.table(file.path(folder, "humann_output", fname),
-#                                  sep="\t", header=FALSE)
-#   colnames(abundance_table_indv) <- c("Pathway", sampleID)
-#   pathway_names <- abundance_table_indv$Pathway
-#   pathway_filter <- !grepl("[|]", pathway_names)
-#   
-#   abundance_table_filtered <- abundance_table_indv[pathway_filter, ]
-#   
-#   return(abundance_table_filtered)
-#   
-# }
-# 
-# combine_abundance <- function(folder){
-# 
-#   all_files <- list.files(file.path(folder, "humann_output"))
-#   indv_file_filter <- grepl("cat", all_files) & grepl("abundance", all_files)
-#   indv_files <- all_files[indv_file_filter]
-#   
-#   
-#   pathway_abundances <- lapply(indv_files, load_pathabundance, folder=folder)
-#   combined_pathway <- reduce(pathway_abundances, full_join, by = "Pathway")
-#   combined_pathway[is.na(combined_pathway)] <- 0
-#   
-#   return(combined_pathway)
-#   
-# }
-# 
-# combined_pathway_abundances <- combine_abundance("plaque_preprocessing")
-# write.table(combined_pathway_abundances, 
-#             file=file.path("plaque_preprocessing", "humann_output", "joint_pathway_abundances.tsv"),
-#             sep='\t', row.names = FALSE, quote=FALSE)
-# 
-# 
-# combined_pathway_abundances <- combine_abundance("saliva_preprocessing")
-# write.table(combined_pathway_abundances, 
-#             file=file.path("saliva_preprocessing", "humann_output", "joint_pathway_abundances.tsv"),
-#             sep='\t', row.names = FALSE, quote=FALSE)
 
-
-
-
+# change the sample names of KO tables
 
 
 plaque_ko_table <- read.table(file.path("plaque_preprocessing", "humann_output", "joint_ko_table.tsv"),
@@ -110,7 +66,7 @@ plaque_ko_table <- read.table(file.path("plaque_preprocessing", "humann_output",
 
 columns <- colnames(plaque_ko_table)
 
-# filter out the marginal KO names
+## filter out the marginal KO names
 all_kos <- plaque_ko_table$Gene.Family
 ko_filter <- !grepl("[|]", all_kos)
 plaque_ko_table <- plaque_ko_table[ko_filter, ]
@@ -170,6 +126,10 @@ write.table(saliva_ko_table,
             file=file.path("saliva_preprocessing", "humann_output", "joint_ko_table_concise.tsv"),
             sep='\t', quote=FALSE)
 
+
+
+
+# change the sample names of taxa tables
 
 
 plaque_taxa_table <- read.table(file.path("plaque_preprocessing", "metaphlan_output", "joint_taxonomic_counts.tsv"),
