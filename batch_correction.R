@@ -60,7 +60,10 @@ saliva_batchinfo <- saliva_batchinfo %>% filter(findmatch > 0) %>%
   select(Sample_ID, Sample_type)
 saliva_batchinfo$Sample_ID <- sapply(saliva_batchinfo$Sample_ID, clean_ID)
 
-
+write.csv(plaque_batchinfo, "counts_cleaning/plaque_batchinfo.csv",
+          row.names=FALSE)
+write.csv(saliva_batchinfo, "counts_cleaning/saliva_batchinfo.csv",
+          row.names=FALSE)
 
 plaque_taxa_count <- read.table("plaque_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
                                 sep='\t')
