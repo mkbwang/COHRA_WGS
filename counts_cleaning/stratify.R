@@ -108,10 +108,22 @@ write.table(plaque_ko_counts_split$count_yr2, "counts_cleaning/strata/plaque_ko_
 ## metadata at year 1
 
 
+binarize_vars <- function(metadata){
+  
+  metadata$inc25 <- metadata$HouseholdIncome_cat2 != "<$25,000"
+  metadata$inc75 <- metadata$HouseholdIncome_cat2 == ">=$75,000"
+  metadata$higherED <- metadata$Education_HS == "Associates degree or higher"
+  metadata$Cigarettes <- metadata$Cigarettes == "Yes"
+  metadata$region <- metadata$region == "WV"
+  return(metadata)
+  
+}
+
 rownames(metadata_yr1) <- as.character(metadata_yr1$BabySubjectID)
 metadata_yr1 <- metadata_yr1[, c("BabySubjectID", "Case_status", "HouseholdIncome_cat2",
                                  "Education_HS", "PERM_D2MFT", "Cigarettes", "Delivery", "BabySex",
                                  "Breastfed", "region")]
+metadata_yr1 <- binarize_vars(metadata_yr1)
 metadata_yr1_saliva <- metadata_yr1[rownames(saliva_taxa_counts_yr1), ]
 metadata_yr1_plaque <- metadata_yr1[rownames(plaque_taxa_counts_yr1), ]
 write.table(metadata_yr1_saliva, "counts_cleaning/strata/metadata_saliva_yr1.tsv",
@@ -120,8 +132,10 @@ write.table(metadata_yr1_plaque, "counts_cleaning/strata/metadata_plaque_yr1.tsv
             sep='\t', quote=F)
 
 ## metadata at year 2
-
-
+metadata_yr2 <- metadata_yr2[, c("BabySubjectID", "Case_status", "HouseholdIncome_cat2",
+                                 "Education_HS", "PERM_D2MFT", "Cigarettes", "Delivery", "BabySex",
+                                 "region")]
+metadata_yr2 <- binarize_vars(metadata_yr2)
 rownames(metadata_yr2) <- as.character(metadata_yr2$BabySubjectID)
 metadata_yr2_saliva <- metadata_yr2[rownames(saliva_taxa_counts_yr2), ]
 metadata_yr2_plaque <- metadata_yr2[rownames(plaque_taxa_counts_yr2), ]
