@@ -3,10 +3,6 @@ library(ConQuR)
 # check whether batch correction is effective
 
 rm(list=ls())
-# load metadata
-
-metadata <- read.table("metadata/metadata_yr1_imputed.tsv",
-                       sep='\t', header=1)
 
 ## plaque
 plaque_batchinfo <- read.csv("metadata/plaque_batchinfo.csv")
@@ -35,9 +31,16 @@ Plot_PCoA(plaque_ko_abundance_corrected, factor=batch_plaque,
 
 adonis2(coda.base::dist(plaque_taxa_counts+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
 adonis2(coda.base::dist(plaque_taxa_counts_corrected+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
+adonis2(plaque_taxa_counts ~ batch_plaque, method="hellinger")
+adonis2(plaque_taxa_counts_corrected ~ batch_plaque, method="hellinger")
+adonis2(plaque_taxa_counts ~ batch_plaque, method="jaccard")
+adonis2(plaque_taxa_counts_corrected ~ batch_plaque, method="jaccard")
 adonis2(coda.base::dist(plaque_ko_abundance+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
 adonis2(coda.base::dist(plaque_ko_abundance_corrected+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
-
+adonis2(plaque_ko_abundance ~ batch_plaque, method="hellinger")
+adonis2(plaque_ko_abundance_corrected ~ batch_plaque, method="hellinger")
+adonis2(plaque_ko_abundance ~ batch_plaque, method="jaccard")
+adonis2(plaque_ko_abundance_corrected ~ batch_plaque, method="jaccard")
 
 
 ## saliva
@@ -69,7 +72,14 @@ Plot_PCoA(saliva_ko_abundance_corrected, factor=batch_saliva,
 
 adonis2(coda.base::dist(saliva_taxa_counts+0.5, method="aitchison") ~ batch_saliva, method="euclidean")
 adonis2(coda.base::dist(saliva_taxa_counts_corrected+0.5, method="aitchison") ~ batch_saliva, method="euclidean")
+adonis2(saliva_taxa_counts ~ batch_saliva, method="hellinger")
+adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="hellinger")
+adonis2(saliva_taxa_counts ~ batch_saliva, method="jaccard")
+adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="jaccard")
 adonis2(coda.base::dist(saliva_ko_abundance+0.5, method="aitchison") ~ batch_saliva, method="euclidean")
 adonis2(coda.base::dist(saliva_ko_abundance_corrected+0.5, method="aitchison") ~ batch_saliva, method="euclidean")
-
+adonis2(saliva_ko_abundance ~ batch_saliva, method="hellinger")
+adonis2(saliva_ko_abundance_corrected ~ batch_saliva, method="hellinger")
+adonis2(saliva_ko_abundance ~ batch_saliva, method="jaccard")
+adonis2(saliva_ko_abundance_corrected ~ batch_saliva, method="jaccard")
 
