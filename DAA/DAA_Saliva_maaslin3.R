@@ -4,6 +4,14 @@ library(ggplot2)
 
 source("DAA/utils.R")
 
+saliva_case_taxa_yr1 <- DAA(title="Case vs control",
+                            source="saliva",
+                            timestamp="yr1",
+                            type="taxa",
+                            covariate="Case_status",
+                            raw_pval = 0.1)
+
+
 saliva_income_taxa_yr1 <- DAA(title="Income over $75,000 vs lower than $75,000",
                source="saliva",
                timestamp="yr1",

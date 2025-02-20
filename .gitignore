@@ -12,4 +12,5 @@ input_files/
 *.gz
 *_output/
 *.log
+*.rds
 

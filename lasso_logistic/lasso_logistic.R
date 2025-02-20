@@ -8,12 +8,6 @@ numCores <- detectCores() - 1
 cl <- makeCluster(numCores)
 registerDoParallel(cl)
 
-# clr_transformation <- function(count_vec, pseudocount=0.5){
-#   count_vec[count_vec == 0] <- pseudocount
-#   mean_logcount <- mean(log(count_vec))
-#   clr_counts <- log(count_vec) - mean_logcount
-#   return(clr_counts)
-# }
 
 
 fit_logistic_lasso <- function(input, output, seed=1){
@@ -58,7 +52,9 @@ fit_logistic_lasso <- function(input, output, seed=1){
 }
 
 
-lasso_logistic <- function(source="saliva", type="taxa", year="yr1",pseudocount=0.5,  prev=0.1){
+
+lasso_logistic <- function(source="saliva", type="taxa", year="yr1",pseudocount=0.5,  prev=0.1,
+                           feature_subset = NULL){
   
   metadata <- read.table(sprintf("counts_cleaning/strata/metadata_%s_%s.tsv", source, year),
                          header=T, sep='\t')
@@ -69,6 +65,10 @@ lasso_logistic <- function(source="saliva", type="taxa", year="yr1",pseudocount=
   
   prevalences <- colMeans(counts > 0)
   counts_subset <- counts[, prevalences > prev]
+  if (!is.null(feature_subset)){
+    counts_subset <- counts_subset[, feature_subset]
+  }
+  
   counts_subset[counts_subset == 0] <- pseudocount
   
   clr_count_subset <- matrix(0, nrow=nrow(counts_subset), ncol=ncol(counts_subset))
@@ -94,151 +94,171 @@ lasso_logistic <- function(source="saliva", type="taxa", year="yr1",pseudocount=
 }
 
 
-saliva_taxa_yr1 <- lasso_logistic(source="saliva",
-                                  type="taxa",
-                                  year="yr1",
-                                  prev=0.1)
-
 
 library(dplyr)
-# sort by descending test AUC
-auc_df <- data.frame(ID = seq(1, 100),
-                              Source="Saliva Taxa", 
-                              Train_AUC = saliva_taxa_yr1$train_aucs,
-                              Test_AUC = saliva_taxa_yr1$test_aucs)
-auc_df <- auc_df %>% arrange(desc(Test_AUC))
-coef_df <- saliva_taxa_yr1$coefs[, auc_df$ID] |> as.data.frame()
-
-# only keep the train/test split where the test AUC is larger than 0.8
-run_mask <- auc_df$Test_AUC >= 0.8
-coef_df_subset <- as.data.frame(coef_df[-1, run_mask])
-
-## sort the features based on the number of times they are selected
-coef_df_subset$selection <- rowSums(coef_df_subset != 0)
-coef_df_subset <- coef_df_subset %>% arrange(desc(selection))
-
-## keep the features that are selected in at least half of all the train/test splits
-nruns <- ncol(coef_df_subset) - 1
-feature_mask <- coef_df_subset$selection >= nruns/2
-
-coef_viz <- coef_df_subset[feature_mask, 1:nruns]
-coef_viz$Feature = rownames(coef_viz)
-library(reshape2)
-coef_viz_long <- melt(coef_viz, id.vars="Feature", variable.name="Run", 
-                      value.name="Coefficient")
-
-coef_viz_long$Feature <- factor(coef_viz_long$Feature,
-                                levels=rev(rownames(coef_viz)))
-coef_viz_long$Run <- factor(coef_viz_long$Run,
-                            levels=colnames(coef_viz))
-coef_viz_long$Direction <- 0
-coef_viz_long$Direction[coef_viz_long$Coefficient > 0] <- 1
-coef_viz_long$Direction[coef_viz_long$Coefficient < 0] <- -1
-coef_viz_long$Direction <- factor(coef_viz_long$Direction,
-                                  levels=c(-1, 0, 1))
-
 ## binary visualization
 library(ggplot2)
 library(scales) 
-logistic_lasso_binary <- ggplot(coef_viz_long, aes(Run, Feature, fill = Direction))+
-  geom_tile(color="gray") + 
-  scale_fill_manual(values=c("#077DE8", "white", '#F04520')) +
-  labs(y="Taxon")+
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        legend.position="none",
-        axis.title = element_blank())
 
-logistic_lasso_continuous <- ggplot(coef_viz_long, aes(Run, Feature, fill = Coefficient))+
-  geom_tile(color="gray") + 
-  scale_fill_gradient2(low="#077DE8", mid="white", high='#F04520', 
-                       limits=c(-0.2, 0.2), midpoint=0, oob = squish)+
-  labs(y="Taxon", fill="Coefficient")+
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        axis.title = element_blank())
+performance_summary <- function(results, auc_bound=0.8, axis_title="Taxon"){
+  # sort by descending test AUC
+  auc_df <- data.frame(ID = seq(1, 100),
+                       Train_AUC = results$train_aucs,
+                       Test_AUC = results$test_aucs)
+  auc_df <- auc_df %>% arrange(desc(Test_AUC))
+  
+  # lasso logistic regression coefficients
+  coef_df <- results$coefs[, auc_df$ID] |> as.data.frame()
+  
+  # only keep the train/test split where the test AUC is larger than 0.8
+  run_mask <- auc_df$Test_AUC >= auc_bound
+  coef_df_subset <- as.data.frame(coef_df[-1, run_mask])
+  
+  ## sort the features based on the number of times they are selected
+  coef_df_subset$selection <- rowSums(coef_df_subset != 0)
+  coef_df_subset <- coef_df_subset %>% arrange(desc(selection))
+  
+  ## keep the features that are selected in at least half of all the train/test splits
+  nruns <- ncol(coef_df_subset) - 1
+  feature_mask <- coef_df_subset$selection >= nruns/2
+  
+  coef_viz <- coef_df_subset[feature_mask, 1:nruns]
+  coef_viz$Feature = rownames(coef_viz)
+  library(reshape2)
+  coef_viz_long <- melt(coef_viz, id.vars="Feature", variable.name="Run", 
+                        value.name="Coefficient")
+  
+  coef_viz_long$Feature <- factor(coef_viz_long$Feature,
+                                  levels=rev(rownames(coef_viz)))
+  coef_viz_long$Run <- factor(coef_viz_long$Run,
+                              levels=colnames(coef_viz))
+  coef_viz_long$Direction <- 0
+  coef_viz_long$Direction[coef_viz_long$Coefficient > 0] <- 1
+  coef_viz_long$Direction[coef_viz_long$Coefficient < 0] <- -1
+  coef_viz_long$Direction <- factor(coef_viz_long$Direction,
+                                    levels=c(-1, 0, 1))
+  
+  
+  logistic_lasso_binary <- ggplot(coef_viz_long, aes(Run, Feature, fill = Direction))+
+    geom_tile(color="gray") + 
+    scale_fill_manual(values=c("#077DE8", "white", '#F04520')) +
+    labs(y=axis_title)+
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          legend.position="none",
+          axis.title = element_blank())
+  
+  logistic_lasso_continuous <- ggplot(coef_viz_long, aes(Run, Feature, fill = Coefficient))+
+    geom_tile(color="gray") + 
+    scale_fill_gradient2(low="#077DE8", mid="white", high='#F04520', 
+                         limits=c(-0.3, 0.3), midpoint=0, oob = squish)+
+    labs(y=axis_title, fill="Coefficient")+
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.title = element_blank())
+  
+  coef_viz_long_nonzeros <- coef_viz_long %>% filter(Coefficient != 0)
+  nonzero_coef_violin_plot <- ggplot(coef_viz_long, aes(x=Feature, y=Coefficient)) + 
+    geom_violin() + geom_boxplot(width=0.1, fill="white")+
+    labs(x=axis_title, y="Coefficient") + geom_hline(yintercept=0, col="blue", linetype="dashed")+
+    theme_bw() + ylim(-0.3, 0.3) + coord_flip()
+  
+  
+  output <- list(AUCdf = auc_df, coef = coef_df,
+                 
+                 binary_heatmap=logistic_lasso_binary,
+                 coef_heatmap=logistic_lasso_continuous,
+                 nonzero_coef = nonzero_coef_violin_plot)
+  
+  return(output)
+  
+}
 
-coef_viz_long_nonzeros <- coef_viz_long %>% filter(Coefficient != 0)
-nonzero_coef_violin_plot <- ggplot(coef_viz_long, aes(x=Feature, y=Coefficient)) + 
-  geom_violin() + geom_boxplot(width=0.1, fill="white")+
-  labs(x="Taxon", y="Coefficient") + geom_hline(yintercept=0, col="blue", linetype="dashed")+
-  theme_bw() + ylim(-0.3, 0.3) + coord_flip()
+saliva_subset_taxa <- c('Neisseria_subflava', 'Abiotrophia_defectiva', 'Kingella_bonacorsii', 'Lachnoanaerobaculum_sp_ICM7',
+                 'Actinomyces_graevenitzii', 'Candidatus_Nanosynbacter_sp_HMT_352', 'Oribacterium_asaccharolyticum',
+                 'Veillonella_rogosae', 'Catonella_massiliensis', 'Prevotella_melaninogenica', 'Campylobacter_concisus',
+                 'Neisseria_meningitidis', 'Ottowia_sp_Marseille_P4747', 'Veillonella_dispar', 'Streptococcus_lactarius',
+                 'Prevotella_sp_HJM029')
+
+saliva_subset_ko <- c('K00799', 'K03676', 'K03856', 'K07101', 'K09774', 'K12410',
+                                   'K22292', 'K00287','K02914', 'K07248', 'K07718', 'K19265', 'K05795', 
+                                   'K10843', 'K13057','K03286', 'K07662' ,'K02237', 'K00247', 'K01639',
+                                   'K04760', 'K13640', 'K02392', 'K03150')
 
 
+plaque_subset_taxa <- c('Neisseria_subflava', 'Neisseria_sicca', 'Streptococcus_mutans',
+                        'Streptococcus_lactarius', 'Selenomonas_noxia')
 
-occurrences <- rowSums(saliva_taxa_coefficients_subset != 0)
-
-
-
-write.csv(saliva_taxa_yr1$coefs, "lasso_logistic/saliva_taxa_yr1.csv",
-          quote=F)
+plaque_subset_ko <- c('K00639', 'K14058', 'K01619', 'K02492', 'K01207',
+                      'K01991', 'K03442', 'K18011', 'K01297', 'K05593')
 
 
-
-saliva_ko_yr1 <- lasso_logistic(source="saliva",
-                                  type="ko",
+fit_and_evaluate <- function(source="saliva", type="taxa", subset_feature=NULL){
+  
+  result_all <- lasso_logistic(source=source,
+                               type=type,
+                               year="yr1",
+                               prev=0.1)
+  auc_all <- data.frame(AUC=result_all$test_aucs,
+                       Predictor=sprintf("%s %s (all)", source, type))
+  
+  performance_all <- performance_summary(results=result_all,
+                                         auc_bound=0.8,
+                                         axis_title="Taxon")
+  
+  # refit the models but start with a subset of features
+  result_subset <- lasso_logistic(source=source,
+                                  type=type,
                                   year="yr1",
-                                  prev=0.1)
+                                  prev=0.1,
+                                  feature_subset = subset_feature)
+  
+  auc_subset <- data.frame(AUC=result_subset$test_aucs,
+                           Predictor=sprintf("%s %s (subset)", source, type))
+  
+  performance_subset <- performance_summary(results=result_subset,
+                                            auc_bound=0.8,
+                                            axis_title=source)
+  
+  return(list(auc_all=auc_all, auc_subset=auc_subset,
+              coef_all=result_all$coef, coef_subset=result_subset$coef))
+  
+}
 
 
-saliva_ko_auc <- saliva_ko_auc %>% arrange(desc(Test_AUC))
-saliva_ko_coefficients <- saliva_ko_yr1$coefs[, saliva_taxa_auc$ID]
+saliva_taxa <- fit_and_evaluate(source="saliva", type="taxa",
+                                subset_feature=saliva_subset_taxa)
 
-good_performance_mask <- saliva_ko_auc$Test_AUC >= 0.8
-saliva_ko_coefficients_subset <- as.data.frame(saliva_ko_coefficients[-1, good_performance_mask])
-saliva_ko_coefficients_subset$selection <- rowSums(saliva_ko_coefficients_subset != 0)
-saliva_ko_coefficients_subset <- saliva_ko_coefficients_subset %>% arrange(desc(selection))
+saliva_ko <- fit_and_evaluate(source="saliva", type="ko",
+                              subset_feature=saliva_subset_ko)
 
-top_coefficients <- as.matrix(saliva_ko_coefficients_subset[1:20, 1:64])
+plaque_taxa <- fit_and_evaluate(source="plaque", type="taxa",
+                                subset_feature = plaque_subset_taxa)
 
-
-
-
-write.csv(saliva_ko_yr1$coefs, "lasso_logistic/saliva_ko_yr1.csv",
-          quote=F)
+plaque_ko <- fit_and_evaluate(source="plaque", type="ko",
+                              subset_feature = plaque_subset_ko)
 
 
-
-saliva_ko_auc <- data.frame(Source="Saliva KEGG",
-                            Train_AUC = saliva_ko_yr1$train_aucs,
-                            Test_AUC = saliva_ko_yr1$test_aucs)
-
-
-plaque_taxa_yr1 <- lasso_logistic(source="plaque",
-                                type="taxa",
-                                year="yr1",
-                                prev=0.1)
-
-
-write.csv(plaque_taxa_yr1$coefs, "lasso_logistic/plaque_taxa_yr1.csv",
-          quote=F)
-
-
-plaque_taxa_auc <- data.frame(Source="Plaque Taxa",
-                            AUC=plaque_taxa_yr1$aucs)
-
+auc_df <- data.frame(AUC=c(saliva_taxa$auc_all$AUC, saliva_taxa$auc_subset$AUC,
+                           saliva_ko$auc_all$AUC, saliva_ko$auc_subset$AUC,
+                           plaque_taxa$auc_all$AUC, plaque_taxa$auc_subset$AUC,
+                           plaque_ko$auc_all$AUC, plaque_ko$auc_subset$AUC),
+                     Predictor = rep(c("Saliva Taxa (all)", "Saliva Taxa (subset)",
+                               "Saliva KEGG (all)", "Saliva KEGG (subset)",
+                               "Plaque Taxa (all)", "Plaque Taxa (subset)",
+                               "Plaque KEGG (all)", "Plaque KEGG (subset)"), each=100))
 
 
 
-plaque_ko_yr1 <- lasso_logistic(source="plaque",
-                                  type="ko",
-                                  year="yr1",
-                                  prev=0.1)
-
-
-write.csv(plaque_ko_yr1$coefs, "lasso_logistic/plaque_ko_yr1.csv",
-          quote=F)
-
-plaque_ko_auc <- data.frame(Source="Plaque KEGG",
-                              AUC=plaque_ko_yr1$aucs)
-
-
-AUC_combined <- rbind(saliva_taxa_auc, saliva_ko_auc,
-                      plaque_taxa_auc, plaque_ko_auc)
-
-
+# AUC_combined <- rbind(saliva_taxa_auc, saliva_ko_auc,
+#                       plaque_taxa_auc, plaque_ko_auc)
+# 
+# 
 library(ggplot2)
-ggplot(AUC_combined, aes(x=Source, y=AUC)) + 
-  geom_boxplot() +xlab("Data") + ylab("AUC")
+ggplot(auc_df, aes(x=Predictor, y=AUC)) +
+  geom_boxplot() +xlab("Predictor") + ylab("Test AUC")+
+  ylim(0.5, 1)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 
