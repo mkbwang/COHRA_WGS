@@ -42,7 +42,7 @@ metadata_plaque_yr1 <- read.table("counts_cleaning/strata/metadata_plaque_yr1.ts
 library(phyloseq)
 library(ADAPT)
 library(dplyr)
-
+KEGG_selected <- readRDS("lasso_logistic/feature_filter/metabolism_KOs.rds")
 # saliva DA KEGG
 saliva_ko_counts_subset <- saliva_ko_counts_yr1[, KEGG_selected]
 phy_saliva <- phyloseq(otu_table(saliva_ko_counts_subset, taxa_are_rows=FALSE),
@@ -51,8 +51,10 @@ censor_val <- min(saliva_ko_counts_subset[saliva_ko_counts_subset > 0])
 DAA_saliva <- adapt(phy_saliva, cond.var="Case_status", censor=censor_val,
                     prev.filter=0.2, alpha=0.1)
 saliva_DA_KEGG <- DAA_saliva@signal
+saliva_fullDAA <- summary(DAA_saliva)
 saveRDS(saliva_DA_KEGG, file="lasso_logistic/feature_filter/saliva_DA_KEGG.rds")
-
+write.csv(saliva_fullDAA,"lasso_logistic/feature_filter/saliva_DAA_details.csv",
+          row.names=F)
 
 # plaque DA KEGG
 plaque_ko_counts_subset <- plaque_ko_counts_yr1[, KEGG_selected]
@@ -62,7 +64,10 @@ censor_val <- min(plaque_ko_counts_subset[plaque_ko_counts_subset > 0])
 DAA_plaque <- adapt(phy_plaque, cond.var="Case_status", censor=censor_val,
                     prev.filter=0.2, alpha=0.1)
 plaque_DA_KEGG <- DAA_plaque@signal
+plaque_fullDAA <- summary(DAA_plaque)
 saveRDS(plaque_DA_KEGG, file="lasso_logistic/feature_filter/plaque_DA_KEGG.rds")
+write.csv(plaque_fullDAA,"lasso_logistic/feature_filter/plaque_DAA_details.csv",
+          row.names=F)
 
 
 
