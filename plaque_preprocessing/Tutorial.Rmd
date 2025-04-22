@@ -1,0 +1,583 @@
+---
+title: "WGS Metagenomics Pipeline - Foxman Lab"
+author: "Freida Blostein"
+date: "5/24/2021"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 2
+    theme: sandstone
+    highlight: tango
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+
+# Important preliminary information 
+
+## Conda environments 
+I like conda environments because they keep separate little worlds for your different programs. This is especially useful when you might have different analysis steps which both depend on an underlying program, but require different versions of that program (e.g. python). It's also nice because conda installing of packages tends to be easier than any other way (mostly because conda does all the dependency checking and downloading of dependencies for you). 
+
+Refer to this for more information on conda environments: https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html
+
+### List of conda environments to make:
+
+- multiqc https://multiqc.info/
+- biobakery3
+- SqueezeMeta
+
+To activate a conda enviornment in your bash scripts you need to first source the conda.sh script to provide access to the conda environment commands and then run conda activate NAME_OF_ENVIRONMENT
+
+## Bash scripting 
+
+## Variables
+We will often declare variables so we don't have to retype long strings, such as paths. This is also nice because when we want to change a we will only have to change these in one place, as opposed to in each place that we called a variable. 
+
+Variables in bash are declared with no spaces i.e. 
+
+```{bash, eval=F}
+path=/scratch/bfoxman_root/bfoxman/blostein/meta_CAVITIES/Code/
+```
+
+NOT
+
+```{bash, eval=F}
+path = /scratch/bfoxman_root/bfoxman/blostein/meta_CAVITIES/Code/
+```
+
+We will then call variables with `bash ${path}`, which is equivalent to but safer than `bash $path`
+
+## Making files executable
+
+If we want to be able to run a script without submitting it to the cluster, we may need to make it an executable script using the following command. So if you get an error like 'Permission denied' when trying to run a .sh script using the notation ./YOURFILENAMEHERE.sh, try doing the following
+
+```{bash, eval=F}
+chmod +x YOURFILENAMEHERE.sh
+```
+
+## Editing files in bash
+
+There are many ways to edit files. Some people use Vi, some people use nano. I usually use nano 
+
+```{bash, eval=F}
+nano YOURFILENAMEHERE.sh
+#cntrlX to close
+```
+
+
+## Array submission of bash scripts
+Several of the bash scripts we are going to use will make use of array submission. This approach, in which we submit the same bash script on multiple different files independently, is going to speed up our analysis. This approach will only work when the exact same tasks needs to be performed on different files and the tasks do not need to communicate with each other. It is especially useful when components of an analysis step does not allow for multithreading. 
+
+All of the code for these types of scripts was based off of: https://its.tntech.edu/display/MON/Submitting+Groups+of+HPC+Jobs+with+Job+Arrays (scroll down to section Submitting Jobs Using Arbitrarily-Named Input Files; other helpful resources can be found here: https://help.rc.ufl.edu/doc/SLURM_Job_Arrays)
+
+Essentially, instead of submitting a single job script that loops through sample files (sample processing runs sequentially == LONG TIME), we are going to submit a job script per sample, so all our samples are being processed in parallel (sample processing SPED UP!)
+
+For an example, the first trimming step with Trimmomatic & 60 samples would take ~12 hours to run samples sequentially. With batch arrays, it takes ~20 minutes (CPU time is the same, but this is nicer for the analyst)
+
+In general, any time we use this bash array system to submit multiple jobs, we will need two scripts, a helper .sh script to submits the bash script once per sample, and the bash script which does the job (actually, we will typically have another .sh script which defines the analysis steps and doesn't need to be changed across studies)
+
+A maximum number of simultaneously running tasks from the job array may be specified using a "%" separator. For example "--array=0-15%4" will limit the number of simultaneously running tasks from this job array to 4.
+
+# Trimming, decontaminating and checking quality 
+We'll use adapted scripts from Will Close (former PhD @ Schloss lab) to remove the Nextera adapters from our reads, pair them,  quality filter them (remove reads of length < 75) and remove host (in our case, human) DNA. 
+
+## Trimming
+
+### Files we need: 
+The [trimmomatic github](!https://github.com/timflutre/trimmomatic/blob/master/adapters/) hosts the fasta files with the adapters in the format trimmomatic needs. You need to know what adapters were used in the sequencing of your project. For my project, done by CosmoID, the Nextera adapters were used. So we are going to want to download that file or copy and paste it into a file on greatlakes where it can be called easily. 
+
+```{bash}
+nano NexteraPE-PE.fa
+>PrefixNX/1
+AGATGTGTATAAGAGACAG
+>PrefixNX/2
+AGATGTGTATAAGAGACAG
+>Trans1
+TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG
+>Trans1_rc
+CTGTCTCTTATACACATCTGACGCTGCCGACGA
+>Trans2
+GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG
+>Trans2_rc
+CTGTCTCTTATACACATCTCCGAGCCCACGAGAC
+^X Y
+```
+
+### Scripts we need: 
+
+This is one of the steps we are going to use array submission for to parallelize our computing process. We need three scripts: 
+
+metagenomeTrimmomatic.sh: This is the script that takes in our read files and our nextera adapter files and does the trimmomatic step of actually trimming the adapters and quality filtering. This is Will Close's script, revised slightly by me to fit our needs. The 1st argument you pass is your fastq1 file, the 2nd argument is your fastq2 file, the 3rd argument is the headcrop value you want (I used 0 here), the 4th should be the path to the .fa file with your adapter sequences that you want to use, the 5th is your output directory. This script then runs the trimmomatic command, moves our unpaired reads into a single file and then runs fastqc on our samples (to get quality stats)
+
+Depending on your filename structure you may have to change the lines in metagenomeTrimmomatic.sh so that the base file name outputs correctly (the part of the script with BASENAME=$..., FILENAME=$..., etc). You may have to experiment to get the files named the way you want.
+
+array_trim.pbs: This is a long script that is doing something very simple: Submitting 1 job per fastq file pair to the metagenomeTrimmomatic.sh script.
+
+Anything starting with #SBATCH are parameters for the slurm bash submitter. You might want to change the jobname, mail type, time or mem (memory) options depending on your needs and desires. You need to change the output option to your directory where you want log files to end up. Remember we are splitting our submissions into many tiny jobs, so the time/memory needs are really only what you need to process 1 sample through the script. 
+
+Anything starting with echo is just some print out (which will end up in our log files) that is keeping track of what our array job/job ids are. We also load the modules we are going to use. 
+
+Next, we create some variables that are important. in is the directory where your original files live. Out is where you want your trimmed fastqs to live, nextera is the path to + name of the adapter file you are going to use. Finally, we make the variables for the files we submit as different jobs. First, we list all of the files in our 'in' directory that have the R1 or R2 nomenclature to get a list of our read1s and read2s. Nect we pull the ith entry of those lists which corresponds to which task of the job array we are on, and set that as the file1 and file2 that we will feed in to our metagenomTrimmomatic.sh script. 
+
+trim.sh: This is the script we are going to submit to start our array job. As before, we set our input file directory. We also count the number of files matching the R1 pattern and save that as a variable so we know how many files we have to index over in our array. We subtract 1 from that number because linux uses 0 based indexing (not 1 based indexing, ZBNUMFILES). Now, as long as we have input files in our directory, we are going to submit (sbatch) our array_trim.pbs file for an array of size 0-ZBNUMFILES. To start the job, all we need to do is be in the folder on great lakes where we have our code files and type ./trim.sh! 
+
+metagenomeTrimmomatic.sh runs fastqc at the end. Make sure you know what sequencer your files came from, since there can be version dependencies for fastqc on the sequencer and Great Lakes does not automatically load the most recent fastqc software. To force most recent version first run `bash module spider fastqc` (to find out what versions are available) then load the most recent version using `bash module load fastqc/VERSIONNUMBER`, for us recently it was `bash module load fastqc/0.11.8` 
+
+
+
+
+```{bash}
+#if you need to make it an executable
+chmod +x trim.sh
+#then just run!
+./trim.sh
+```
+
+
+## Decontaminating
+
+Only bacteria have 16S genes, so in 16S amplicon sequencing, we only measure bacteria. But in WGS sequencing, we get ALL the DNA that is in a sample - eukaryotes & prokaryotes (& DNA virus)! This is an advantage, but also a complication.  In samples from host-associated communities, we also will probably end up with host DNA in our fastq.gz files. We don't want this in our samples: 1) we are purporting to speak to the microbiome, not the host genome, 2) we don't want to waste computation on something we don't care about, 3) host contamination can make some of our downstream analysis steps, like assembly, worse. So we are going to remove host DNA by mapping against the host genome (which in our case is human, but could be mouse, rat, plant, etc in other labs) and only keeping those reads which DIDN'T map to the host. 
+
+We're going to use the same three file system to do array submission for this step too, as again the files do not depend on each other.
+
+### Files we need 
+
+Here we need a host genome file that bowties can use to match against our sequences.  I used GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.bowtie_index, on the basis of recommendation of this https://groups.google.com/g/kneaddata-users/c/TurjwoYuV7E.
+
+You can download it here: ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.bowtie_index.tar.gz
+
+You can run these lines of code 
+
+```{bash get human genome database}
+wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/GRCh38_major_release_seqs_for_alignment_pipelines/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.bowtie_index.tar.gz
+tar -xf GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.bowtie_index.tar.gz
+```
+
+
+### Scripts we need 
+Again we have the same three file system. 
+
+Our work horse is metagenomeDecontaminateReads.sh: The first 3 arguments are the trimmed fastq files (paired read 1, paired read2 unpaired) from our trimming step. The 4th argument is the human genome reference we are using. The THREADS argument will automatically detect the number of cores available to us. The 5th argument is our output directory. This script than maps our reads to the reference contaminant genome, pulls out unmapped reads and compress them back into fastq.gzip files. It does this for paired and unpaired reads. Finally, it also runs fastqc. 
+
+array_decontam: just like array_trim. Change the sbatch variables that are necessary to change for your analysis. Change the host, in and out variables as well. 
+
+decontam.sh: just like trim.sh 
+
+```{bash}
+chmod +x decontam.sh
+./decontam.sh
+```
+
+
+## Checking quality 
+
+In each of the previous steps, our workhorse scripts calculated individual fastqc files per sample file for us, giving lots of quality statistics. Looking at each of these individually would be no fun. So instead, we will use the multiqc tool to look at all of them similtaneously. https://multiqc.info/
+
+Multiqc isn't on the grid for us like the other modules we've used so far. So we have to install it. We will use conda to do this. 
+
+```{bash}
+conda install -n multiqc -c bioconda -c conda-forge multiqc #-n makes a new conda environment named multiqc, -c are channel tags (where to download from), then we say multiqc because that is what we want
+multiqc .
+```
+
+Next we can just run the script miltiQC.pbs. Again, change sbatch variable to change your submission options, and change the directory variable trim_dir, decontam_dir, and out_dir. 
+
+**LOOK AT YOUR MULTIQC STATS** why would we run something if we weren't going to check it. Does everything look good? Depending on your type of sequencing project (16S amplicon? shotgun metagenomics? RNA?) some modules will fail (for example, for 16S rRNA amplicon sequencing, nearly every amplicon is almost perfectly identical to the others... kind of why we use it, no?) See: https://rtsf.natsci.msu.edu/genomics/tech-notes/fastqc-tutorial-and-faq/ 
+
+Googling/Biostars will also be a good friend here. 
+
+Now, **if everything looks ok** we can move on to analysis! 
+
+# Next steps: to assemble or not to assemble 
+
+Right now we have trimmed, quality filtered and host decontaminated reads. We want to translate those reads into measure of WHO is in our samples and WHAT they are capable of doing (*capable* of doing. Not actually doing. Unless you have transcriptomic data). What we currently have our short reads. Remember, when we sequenced the DNA, we sonicated or otherwise fragmented the DNA because that's what iluminna needed. Now we need to make inference about the taxa and genes these small fragments came from . Two approaches to this exist: use the short-reads directly, or assemble them into longer contiguous sequences (contigs). Which is better? 
+
+> It is sensible to think that the taxonomic and functional identification is more precise having the full gene than just the fragment of it contained in a short read. Also, taxonomic classification benefits of having contiguous genes, because since they come from the same genome, non-annotated genes can be ascribed to the taxon of their neighbouring genes. Therefore, obtaining an assembly can facilitate considerably the subsequent annotation steps.
+
+Ok, that makes it sound like assembly is FOR SURE the thing to do... but.... 
+
+>However, de novo metagenomic assembly is a complex task: the performance of the assembly is dependent on the number of sequences and the diversity of the microbiome (richness and evenness of the present species) [1], and a fraction of reads will always remain unassembled. Microbiomes of high diversity or high richness (those presenting many different species) such as those of soils, are harder to assemble, likely to produce more misassembles and chimerism [2], and will produce smaller contigs. From a computational point of view, the assembly step often requires large resources, especially in terms of memory usage, although modern assemblers have somewhat reduced this constraint. Different assemblers are available, which use diverse algorithms and heuristics and hence may produce different results, whose assessment is difficult.
+
+(by the way, those quotes are from this paper: https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-019-6289-6) which has a nice, easy to read introduction and then goes on to benchmark many different short-read based analysis options against each other) 
+
+Since both options have some + and some -, and since we hate making decisions, por que no las dos? 
+
+![](12864_2019_6289_Fig1_HTML.webp)
+
+# Short-read based pipelines
+
+So how can we just use those short-reads? Well, we could do what we did before for excluding human DNA and just map each read against a big database that contains information on gene sequences from many different taxa and functions (a homology search). Simple and easy to understand! But...
+
+> ... since it is based on homology searches for millions of sequences against huge reference databases, it usually needs large CPU usage, especially taking into account that for taxonomic assignment the reference database must be as complete as possible to minimize errors [9]; and second, the sequences could be too short to produce accurate assignments [10, 11]. Also, it is generally harder to annotate functions than taxa, because short reads are often not discriminative enough to distinguish between functions, since they may map to promiscuous domains that can be shared between very different protein.
+
+Ok, that's not PERFECT then.
+
+>Another alternative to assembly is to count the k-mer frequency of the raw reads, and compare it to a model trained with sequences from known genomes, as implemented in Kraken2 [12] or Centrifuge [13]. As k-mer usage is linked to the phylogeny and not to function, these methods can be used only for taxonomic assignment.
+
+Getting better, but I want taxa AND functions! 
+
+>Finally, also for taxonomic profiling other methods rely on the identification of phylogenetic marker genes in raw reads to estimate the abundance of each taxa in the metagenome, for instance Metaphlan2 [14] or TIPP [15]. These methods must be considered profilers, since they do not attempt to classify the full set of reads, but instead recognize the identity of particular marker genes to infer community composition from these.
+
+First, we will start with two short-read based profilers called Metaphlan3 (taxa) and Humann3 (gene orthologs). Now, the paper I've been quoting did find that both Kraken and Metaphlan are not PERFECT (or even *that great*) for estimating taxonomic profiles. Raw read assignment or assembly followed by taxonomic assignment did better (which is why we are also going to do the assembly based approach). But these Biobakery tools are well established in the literature,  easy to run, work not too bad for human-associated microbiomes, and some reviewers expect to see them. Since they aren't terribly computationally costly, we will do them too. 
+
+## Biobakery
+
+BioRxive paper for humann3 suite of tools: https://www.biorxiv.org/content/10.1101/2020.11.19.388223v1.full
+
+### Installing biobakery 
+
+```{bash}
+#create conda 
+conda create --name biobakery3 python=3.7
+conda activate biobakery3
+#configure channels
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+conda config --add channels biobakery
+#install 
+conda install humann -c biobakery
+
+```
+
+### Downloading databases
+
+Next we are going to need to download some of those reference databases. Supposedly you can run the following code to install these databases. 
+
+```{bash}
+$INSTALL_LOCATION=/scratch/bfoxman_root/bfoxman/blostein/humann3_db/ #change me
+humann_databases --download chocophlan full $INSTALL_LOCATION --update-config yes
+#this will download the Uniref90 NON filtered database (20.7GB, recommended)
+humann_databases --download uniref uniref90_diamond $INSTALL_LOCATION --update-config yes
+humann_databases --download utility_mapping full $INSTALL_LOCATION --update-config yes
+#the commented line below will download the filtered database (0.9GB)
+#humann_databases --download uniref uniref90_ec_filtered_diamond $INSTALL_LOCATION
+#you could also chose to download uniref50 databases but I do not recommend it. see the discussion here: 
+#https://github.com/biobakery/humann#5-download-the-databases
+#https://github.com/biobakery/humann#selecting-a-level-of-gene-family-resolution
+```
+
+Doing it this way has the nice side effect of updating your configuration file with the path to your database.
+
+However, we may want to consider keeping these in a single location that we can all access, because these databases are LARGE. I actually ended up deleting them after running, because I was starting to take up too much space on our scratch file (which has lots of space! But metagenomics files can be quite large) I'm not sure what options exist on the grid for this. 
+
+Also, you may run into trouble downloading the databases this way. Teh above has worked for me before, but I have also had it not work. That time, the way I was actually able to download the databases was based on an answer given here: https://forum.biobakery.org/t/difficulty-downloading-databases-in-humann3/1343/5. I ended up just wget-ing the databases from this hosted site: http://cmprod1.cibio.unitn.it/databases/HUMAnN/
+
+```{bash}
+#cd to the place you want to download the databases
+cd /scratch/bfoxman_root/bfoxman/blostein/humann3_db
+wget http://cmprod1.cibio.unitn.it/databases/HUMAnN/uniref90_annotated_v201901b_full.tar.gz
+wget http://cmprod1.cibio.unitn.it/databases/HUMAnN/full_chocophlan.v296_201901b.tar.gz
+wget http://cmprod1.cibio.unitn.it/databases/HUMAnN/full_mapping_v201901b.tar.gz
+#then untar the files
+tar -xf uniref90_annotated_v201901b_full.tar.gz
+tar -xf full_chocophlan.v296_201901b.tar.gz
+tar -xf full_mapping_v201901b.tar.gz
+```
+
+## Running Metaphlan3 & Humann3 
+
+First we need to concatonate our read1 and read2 files together. This is because Humann3 does not currently take into account the mate-pair nature of paired-end sequencing, explanation here: https://github.com/biobakery/humann#humann-30-and-paired-end-sequencing-data
+
+We run the script moveAndcat.sh to do this. 
+Then, once our files are concatonated, we will just loop over all of our files and run Humann3 (which calls Metaphlan3) using the code in the runhumann3.pbs script, which jut loops over the files sequentially. This is how I did it before learning about bash parallelization. 
+
+OR... we can parallelize our script, since humann3 is running on each interleaved fastqs independently. Again, this isn't necessarily saving money, just saving time. I haven't run it this way but I have written the scripts to do so and tested them on a subset of my samples.
+
+## Edited February 1st to add options enabling detection of low-abundance spike-in and speed up computation time 
+
+The previous code is now in the subfolder 'archive' and the description of it remains in the section below this one. The new code changes the options to allow for profiling of the low-abundance spike-in. I also implemented the suggestion on the Humann tutorial to use a joint taxonomic profile and speed up computation time (please see https://github.com/biobakery/humann section "Joint taxonomic profile". Now there are more steps and scripts to run. 
+
+1. Still run MoveAndCat.sh as described above. 
+
+2. Create taxonomic profiles for each of the samples in the input folder using the array script metaphlan.sh and array_metaphlan.pbs. Please make sure to change the input and output folder paths in both of these scripts. You do not have to change the variables unless you want to (see array_metaphlan.pbs). Please increase the number after the % sign in the metaphlan.sh to something reasonable for the memory and core use you request (remember this controls how many jobs launch at once ... higher number = more similtaneous jobs = faster output = more computation resources used at a time but the same amount used overall)
+- You can increase the number of threads if you would like, but make sure to also increment the number of threads requested in the pbs header.
+- The metaphlan variable is the path to the shared_data folder with the metaphlan database installed
+- index=mpa_v30_CHOCOPhlAN_NEW2 is the metaphlan database with the *Allobacillus halotolerans* marker genes added. 
+- q_value is the quantile for robust averaging. Vary from 0.05 (will hopefully get allobacillus halotolerans in most samples) to 0.2 (metaphlan default) - if you run twice at different thresholds, put the outputs in different folders and just use the outputs from one for the next steps below (I would recommend using the q_value 0.05 outputs)
+
+3. Join all of the taxonomic profiles together and reduce to a single column of abundances representing the maximum abundance across all of your samples. The code provided on the humann github page to do this wouldn't work. Instead, we use the metaphlan python script merge_metaphlan_tables.py to first merge the tables. Then we use an Rscript max_table.R and dplyr syntax to get the rowwise maximum abundance value for each species-level clade across all of our samples. We also do some formating. Finally, we add a header to the top of the maximum abundance file so that humann will recognize it using the sed linux command. 
+
+4. Providing the maximum taxonomic profile we just created in step 3 as our taxonomic profile, we run humann on a single sample to get the custom indexed chocophlan database (which will now include ALL taxa from across ALL samples, rather than just the taxa present in this sample). All of the code to do step 3 and 4 are provide together in join_profile.pbs. Again, make sure to change the directory options in, out and code at the beginning of the script to the directory where you are running samples from: 
+- in should be the directory where all the metaphlan profiles from step 1 are. 
+- out will be the directory where the humann profiles will be stored (in this case, a new directory within the in directory)
+- code is the directory where the r script max_table.R is. 
+- you can change prescreen if you'd like but I'd recommend keeping it low - this is the abundance value below which taxa in your taxonomic profile are not included for the creation of the custom chochoplan index. By default it would be 0.01
+
+Normally, part of the output from running humann on this single sample will be bowtie2/custom chochoplan indexes for the taxa in the sample. What we've done is force humann to build a bowtie2 index with ALL of the taxa in ALL of our samples. This makes a larger bowtie2 index than we may need for this particular sample, but it decreases computation time. Creating a bowtie2 index can take up quite a bit of time, while using a preexisting one is more trivial. So by making one big bowtie2 index at the begining we avoid having to make a bunch of tiny ones. 
+
+5. Now we can run humann  3 on the rest of the samples and provide the path to this new custom bowtie index for all of the samples. We will do this in an array script again, launcing many jobs at once. Again change the number after the % sign in humman.sh. Again, change the options at the beginning of the array_humann.pbs script: 
+- in is the directory where ALL of the concatonated, host-removed files you want to run are. 
+- out is where you want the humann output to be (must be the same place as in step 4 above)
+- one_sample is the path to the single original file ran humann on in step 4 above. 
+ -prescreen and threads are as described above. 
+- you do not need to change chocophlan or uniref, these are the paths to the databases which I installed in the shared directory 
+
+Once you have completed these steps you can go to post processing - community composition step below.
+
+## Archived array options 
+
+Again we have a script humann.sh which will submit our array job. WE run this in bash just by going to our code file and running `bash ./humann.sh`. I added a %4 when testing this code to the array submission (`bash --array=0-$ZBNUMFILES%4`) to limit to 4 jobs being submitted at a time, but please change this when you run, either so that all files submit at once or to something reasonable for the number of files you have. 
+
+Then we have array_humann.sh. This file (as before) sets some important variables that you need to change, like in, out, database locations. It also contains the line of code for running humann on a single sample. This line of code is separated across many file lines using the '\' symbol for readability. When we pass the bash variable for the metaphlan database, it needs to be quoted. Even though we quoted this when we created the variable, Bash interperets quotes, so we have to quote it every time we call it (see: https://stackoverflow.com/questions/1668649/how-to-keep-quotes-in-bash-arguments/1669548)
+
+## Post processing - community composition 
+
+In our humann3 output directory, we now have three tsv files for each sample. We will talk about those in a little bit. We also have temporary directories for each sample, SAMPLENAME_humann_temp. These hold some important outputs from the Metaphlan run that was conducted as part of the Humann run. To get a sample x taxa table of all of the organisms found in our samples you can run the following line of code: 
+
+```{bash}
+cd /scratch/bfoxman_root/bfoxman/blostein/meta_CAVITIES/Humann2/Files/humann3_output #go into our output directory
+
+merge_metaphlan_tables.py ./*/*_metaphlan_bugs_list.tsv > merged_metaphlan_abundance_table.tsv # merge any files that are within any directory within the current directory and match the pattern of ending in metaphlan_bugs_list.tsv
+
+#now we want to get this at different levels, we can use pattern matching to pull out only the rows where we have assignment to the phylum or species level
+grep -E "(p__)|(^ID)" | grep -v "c__" merged_metaphlan_abundance_table.tsv > merged_metaphlan_phyla_table.tsv
+
+grep -E "(s__)|(^ID)" merged_metaphlan_abundance_table.tsv | grep -v "t__" | sed 's/^.*s__//g' > merged_abundance_table_species.txt
+```
+
+This code also exists in the file MergeMetaphlan.pbs
+
+## Post processing - functional potential 
+
+Now we have sample x organism community composition information, or "WHO" is there. What about our other question, "WHAT" are they capable of doing, or functional potential? For this we turn to our three per sample  .tsv files that have the following information: 
+
+- SAMPLENAME_gene: abundance of different UniRef90 gene fmilies by organism: 
+
+This file details the abundance of each gene family in the community. 
+
+Gene families are groups of evolutionarily-related protein-coding sequences that often perform similar functions.
+
+Gene family abundance at the community level is stratified to show the contributions from known and unknown species.
+
+Individual species' abundance contributions sum to the community total abundance.
+
+Gene family abundance is reported in RPK (reads per kilobase) units to normalize for gene length; RPK units reflect relative gene (or transcript) copy number in the community. RPK values can be further sum-normalized to adjust for differences in sequencing depth across samples.
+
+The "UNMAPPED" value is the total number of reads which remain unmapped after both alignment steps (nucleotide and translated search). Since other gene features in the table are quantified in RPK units, "UNMAPPED" can be interpreted as a single unknown gene of length 1 kilobase recruiting all reads that failed to map to known sequences.
+
+- SAMPLENAME_pathabundance.tsv: abundance of different metacyc pathways (larger unit than gene orthologs) by organism 
+
+This file details the abundance of each pathway in the community as a function of the abundances of the pathway's component reactions, with each reaction's abundance computed as the sum over abundances of genes catalyzing the reaction.
+
+Pathway abundance is computed once at the community level and again for each species (plus the "unclassified" stratum) using community- and species-level gene abundances along with the structure of the pathway.
+
+The pathways are ordered by decreasing abundance with pathways for each species also sorted by decreasing abundance. Pathways with zero abundance are not included in the file.
+
+Pathway abundance is proportional to the number of complete "copies" of the pathway in the community. Thus, for a simple linear pathway RXN1â†’RXN2â†’RXN3â†’RXN4, if RXN1 is 10 times as abundant as RXNs 2-4, the pathway abundance will be driven by the abundances of RXNs 2-4.
+
+Unlike gene abundance, a pathway's community-level abundance is not necessarily the sum of its stratified abundance values. For example, continuing with the simple linear pathway example introduced above, if the abundances of RXNs 1-4 are [5, 5, 10, 10] in Species_A and [10, 10, 5, 5] in Species_B, HUMAnN 3.0 would report that Species_A and Species_B each contribute 5 complete copies of the pathway. However, at the community level, the reaction totals are [15, 15, 15, 15], and thus HUMAnN 3.0 would report 15 complete copies.
+
+In greater detail, the abundance for each pathway is a recursive computation of abundances of sub-pathways with paths resolved to abundances based on the relationships and abundances of the reactions contained in each. Each path, the smallest portion of a pathway or sub-pathway which can't be broken down into sub-pathways, has an abundance that is the max or harmonic mean of the reaction abundances depending on the relationships of these reactions. Optional reactions are only added to the overall abundance if their abundance is greater than the harmonic mean of the required reactions.
+
+Gap filling allows for a single required reaction to have a zero abundance. For all pathways, the required reaction with the lowest abundance is replaced with the abundance of the required reaction with the second lowest abundance.
+By default, HUMAnN 3.0 uses MetaCyc pathway definitions and MinPath to identify a parsimonious set of pathways which explain observed reactions in the community.
+
+- SAMPLENAME_pathcoverage.tsv: 
+
+Pathway coverage provides an alternative description of the presence (1) and absence (0) of pathways in a community, independent of their quantitative abundance.
+
+More specifically, HUMAnN 3.0 assigns a confidence score to each reaction detected in the community. Reactions with abundance greater than the median reaction abundance are considered to be more confidently detected than those below the median abundance.
+
+HUMAnN 3.0 then computes pathway coverage using the same algorithms described above in the context of pathway abundance, but substituting reaction confidence for reaction abundance.
+
+A pathway with coverage = 1 is considered to be confidently detected (independent of its abundance), as this implies that all of its member reactions were also confidently detected. A pathway with coverage = 0 is considered to less confidently detected (independent of its abundance), as this implies that some of its member reactions were not confidently detected.
+
+Like pathway abundance, pathway coverage is computed for the community as a whole, as well as for each detected species and the unclassified stratum.
+
+Much as community-level pathway abundance is not the strict sum of species-level contributions, it is possible for a pathway to be confidently covered at the community level but never confidently detected from any single species.
+Pathway coverage is reported for any non-zero pathway abundance computed at the community-level or for an individual stratum (species or "unclassified").
+
+The pathway coverage file follows the same order for pathways and species as the abundance file. Entries for "UNMAPPED" and "UNINTEGRATED" are included and set to 1.0 to further maintain this ordering, although the "coverage" of these features is not meaningful.
+
+There are additional files in each samples temp directory. We will use these for Strainphlan but do not need to worry about them so much for just using the Humann3 results. 
+
+Notice that the gene families file has been normalized for gene length (RPK), but neither the gene families or pathway abundance files have been normalized for sequencing depth yet. We still have to normalize these files to account for the difference in sequencing depth between samples.  
+
+Another thing we want to do is join these files into a single file that is sample x gene abundance or sample x path abundance. We could normalize to relative abundance (RA, everything sums to 1 in each sample) or copies per million (CPM, everything sums to 1 million in each sample). The humann3 tutorial explicitly says that CPM is more convenient for samples with many features (probably because when we may have low abundance features, and saying 100 CPM is easier/nicer than saying 0.0001 RA), but some tools (like MASLIN) expect the sum of your features within a sample to be equivalent to 1. So this is a pretty downstream analysis dependent decision. 
+
+The last thing we may want to do is create a non-stratified version of these tables, i.e. a representation of JUST the community-wide abundance of gene families and pathways, not stratified by organism. 
+
+I do all three of these things in the script JoinAndRenorm3.pbs. First I join the per sample tables into single tables (humann_join_tables), than I renormalize to copies per million (humann_renorm_table), then I split the organism-stratified files into nonstratified (community-level) and stratified (organism-level) files. 
+
+It is worth noting here that with a large number of samples, combining all the stratified gene family by organism tables into one table is going to produce an enormous table that take up a huge amount of memory, making even simple operations like normalization memory intensive. Here an option would be to normalize all files first, then join (which is the order the Humann3 tutorial does). It is possible that this will still be too large of a file to reasonably work with, especially for the gene families file, so it may make more sense to regroup to broader categories or even work only with community-level (non-stratified) files. In this case the order would be 1) renormalize individual samples 2) split individual tables into stratified/nonstratified versions 3) merge only the nonstratified versions. 
+
+Another thing I mentioned is the idea of regrouping the gene families to a broader category. That's essentially what the metacyc pathways are, but you may want to regroup to a different category (Kegg Orthologs, EC numbers, etc). Then you can use the humann command humann_regroup_table. You will need to have downloaded the group mapping files, which you can download using the command `bash humann_databases --download utility_mapping full $INSTALLATION_DIRECTORY` replacing $INSTALLATION_DIRECTORY with your directory choice. The script RegroupTable.pbs does this. 
+
+## Running Strainphlan
+
+Another benefit to shotgun metagenomics is that we can get more detail about strain level variation in samples. In the biobakery world, we use a package call strainphlan to get this information. 
+
+### Additional resources
+
+#### High number of unmapped or unassigned reads
+https://groups.google.com/g/humann-users/c/4Pz8NritMzw
+https://forum.biobakery.org/t/extremely-high-unmapped-rates-in-human-metatranscriptomics-samples/801/13
+
+#### Different results from biobakery2 vs 3
+https://forum.biobakery.org/t/metaphlan-3-versus-2-different-results/680/3
+
+# Assembly-based approaches
+
+The other, more common approach, would be to assemble our sequences into a longer, continuous sequence based on the overlaps in nucleotides between sequences. 
+
+>Usually, one of the first steps in the analysis involves the assembly of the raw metagenomic reads after quality filtering. The objective is to obtain contigs, where genes can be predicted and then annotated, usually by means of comparisons against reference databases. It is sensible to think that the taxonomic and functional identification is more precise having the full gene than just the fragment of it contained in a short read. Also, taxonomic classification benefits of having contiguous genes, because since they come from the same genome, non-annotated genes can be ascribed to the taxon of their neighbouring genes. Therefore, obtaining an assembly can facilitate considerably the subsequent annotation steps.
+
+A huge benefit not mentioned here is that if you get a complete enough genome from assembly, you can identify NEW microbes that aren't even IN any reference databases. 
+
+Think about it like this: 
+
+You take many sequences: 
+-ACATATGACTAG
+
+-CTAGACTAGATAGATGATAGT
+
+-ATAGTAGACACA
+
+-CATACGATACG
+
+And look at how they overlap to make contiguous sequence (contigs):
+
+    ACATATGACTAG            ATAGTAGACACA  
+
+            CTAGACTAGATAGATGATAGT     CATACGATACG
+        
+        
+There are fancy methods to evaluate overlap in a computationally efficient way, these are call de Bruijn graphs, see these resources: 
+
+- https://www.youtube.com/watch?v=OY9Q_rUCGDw
+
+- https://towardsdatascience.com/genome-assembly-using-de-bruijn-graphs-69570efcc270
+
+- https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5531759/
+
+The goal is to get as complete of a microbial genome as possible (which is circular). However, that likely isn't going to happen in complex communities with many members and low depth of sequencing coverage. Once we have an assembly, we can do the same type of thing we did in the short read pipeline. 
+
+We can 
+
+1) predict RNA sequences and open reading frames (ORFs, similar to exon or gene, the part of the DNA that gets translated to RNA), i.e. genes
+
+2) Map genes taxonomically and functionally to known databases of taxa and function 
+
+3) map those longer sequences (contigs) to databases of known taxa and known function, 
+
+4) Coverage and abundance estimation for genes and contigs
+
+5) estimate taxa and function abundance (not the same as 4) 
+
+6) bin our assembly into group based on if they appear to come from the same source population (do these contigs all come from the same taxa), many different binning algorithims! (de novo, can identify new microbes)
+
+7) assign our bins to taxa based on sequences
+
+8) predict functional pathways for our bins
+
+THIS IS A TON TO DO. These steps also rely on a ton of different steps and packages and in all, it's a huge pain to do on your own. Which is why we are eternally grateful that some people somewhere did it for you, packaged into a easy pipeline that you can run with a single simple command. Enter, metasqueeze
+
+## MetaSqueeze
+
+https://github.com/jtamames/SqueezeMeta
+
+## Installing MetaSqueeze
+
+We will install metasqueeze as a conda environment, just like we did for biobakery
+
+```{bash}
+#create conda environment
+conda create -n SqueezeMeta -c conda-forge -c bioconda -c fpusan squeezemeta
+#activate conda environment
+conda activate SqueezeMeta
+# test our installation 
+/home/blostein/.conda/envs/SqueezeMeta/SqueezeMeta/utils/install_utils/test_install.pl
+```
+
+## Download databases
+
+Again, we are going to need some databases for homology searches and the like. You can run the very simple script download_db.pbs to do this. If you run into trouble, you can also see some suggestions here: https://github.com/jtamames/SqueezeMeta
+
+## Get list of samples
+
+We need a list of our samples in a specific format for MetaSqueeze to run. Specifically, it needs to look like this: 
+
+```{bash}
+Sample1	readfileA_1.fastq	pair1
+Sample1	readfileA_2.fastq	pair2
+Sample1	readfileB_1.fastq	pair1
+Sample1	readfileB_2.fastq	pair2
+Sample2	readfileC_1.fastq.gz	pair1
+Sample2	readfileC_2.fastq.gz	pair2
+Sample3	readfileD_1.fastq	pair1	
+Sample3	readfileD_2.fastq	pair2	
+```
+
+We can get this fairly easily using linux and R 
+
+```{bash}
+#list all the paired files in our input directory and save just the last part of the file pathh structure (the file name) to a txt file 
+ls /scratch/bfoxman_root/bfoxman/blostein/meta_CAVITIES/Files/CleanPipe/PostHR/*R*.fq.gz | awk -F "/" '{print $NF}' > my_samples.txt
+#open R to do the next block of code
+R
+```
+
+```{r}
+s=read.table("my_samples.txt", sep='\t', header=F)
+paste('Sample', gsub('-.*', '', s$V1), sep='_')
+#give a nice sample name 
+s$samples=paste('Sample', gsub('-.*', '', s$V1), sep='_')
+library(stringr)
+#detect if there is a R1, if not call pair2 
+s$pair=ifelse(str_detect(s$V1, 'R1'), 'pair1', 'pair2')
+head(s)
+s=s[, c(2, 1, 3)]
+s
+write.table(s, 'samples.txt', row.names=F, col.names=F, sep="\t", quote=FALSE)
+test=read.table("samples.txt")
+head(test)
+```
+
+I included samples.txt as well as the split samples files of plaque and saliva so you can see how the sample file should look. 
+
+## Run the assembly pipeline (yes! Thats it!)
+
+Finally, we will run the assembly pipeline using the script assembly_pipe.pbs. If your assembly pipeline stops for some reason we can restart using the restart_pipe.pbs
+
+### SBATCH options
+This job needs a considerable amount of memory, as assembly is quite memory intensive. Provide 128g of memory, and 12 cpus per taxa at least. For our many samples projects, we may need to use GPU or high memory node (we will have to see) or run Metasqueeze in an alternative mode: https://github.com/jtamames/SqueezeMeta/wiki/When-to-use-each-of-the-SqueezeMeta-modes
+
+### Conda environment 
+We will activate our SqueezeMeta conda environment
+
+### Variables 
+Set reads variable to the path to your trimmed, decontaminated fastq.gz files. Set samplefile to the file we created in the section above. Set project name to a reasonable project name. 
+
+## Downstream analysis of SQM outputs 
+
+SQM has an R package that makes operations on the SQM output a little easier. 
+
+### SQM tools R package
+https://github.com/jtamames/SqueezeMeta/issues/60
+
+### SQM results to R object
+https://github.com/jtamames/SqueezeMeta/wiki/Using-R-to-analyze-your-SQM-results
+
+Run the following lines of R code on greatlakes, interactively: 
+
+```{r, eval=F}
+R #to start R
+library('SQMtools')
+pathToOutput='/scratch/bfoxman_root/bfoxman/YOURDIRECTORY/YOURASSEMBLY'
+loadSQM(pathToOutput)
+save()
+```
+
+
+# Helpful resources 
+
+https://rstudio-pubs-static.s3.amazonaws.com/582075_8386575aeef14edf8b297d24608984e9.html
+

@@ -61,17 +61,17 @@ combine_counts("plaque_preprocessing")
 # change the sample names of KO tables
 
 
-plaque_ko_table <- read.table(file.path("plaque_preprocessing", "humann_output", "joint_ko_table.tsv"),
-                              sep='\t', header=T)
+plaque_ko_table <- read.table(file.path("plaque_preprocessing", "humann_output", "joint_ko_table_concise.tsv"),
+                              row.names=1, sep='\t', header=T)
 
 columns <- colnames(plaque_ko_table)
 
 ## filter out the marginal KO names
-all_kos <- plaque_ko_table$Gene.Family
-ko_filter <- !grepl("[|]", all_kos)
-plaque_ko_table <- plaque_ko_table[ko_filter, ]
-rownames(plaque_ko_table) <- all_kos[ko_filter]
-plaque_ko_table$Gene.Family <- NULL
+# all_kos <- plaque_ko_table$Gene.Family
+# ko_filter <- !grepl("[|]", all_kos)
+# plaque_ko_table <- plaque_ko_table[ko_filter, ]
+# rownames(plaque_ko_table) <- all_kos[ko_filter]
+# plaque_ko_table$Gene.Family <- NULL
 
 columns <- colnames(plaque_ko_table)
 columns <- gsub("[A-Za-z]", "", columns)
@@ -92,22 +92,17 @@ write.table(plaque_ko_table,
 
 
 
-
-
-
-
-
-saliva_ko_table <- read.table(file.path("saliva_preprocessing", "humann_output", "joint_ko_table.tsv"),
-                              sep='\t', header=T)
+saliva_ko_table <- read.table(file.path("saliva_preprocessing", "humann_output", "joint_ko_table_concise.tsv"),
+                              row.names=1, sep='\t', header=T)
 
 columns <- colnames(saliva_ko_table)
 
 # filter out the marginal KO names
-all_kos <- saliva_ko_table$Gene.Family
-ko_filter <- !grepl("[|]", all_kos)
-saliva_ko_table <- saliva_ko_table[ko_filter, ]
-rownames(saliva_ko_table) <- all_kos[ko_filter]
-saliva_ko_table$Gene.Family <- NULL
+# all_kos <- saliva_ko_table$Gene.Family
+# ko_filter <- !grepl("[|]", all_kos)
+# saliva_ko_table <- saliva_ko_table[ko_filter, ]
+# rownames(saliva_ko_table) <- all_kos[ko_filter]
+# saliva_ko_table$Gene.Family <- NULL
 
 columns <- colnames(saliva_ko_table)
 columns <- gsub("[A-Za-z]", "", columns)
