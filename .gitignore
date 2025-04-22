@@ -4,6 +4,7 @@
 .Ruserdata
 *.csv
 *.tsv
+*.txt
 *.xlsx
 *.Rproj
 *.png
@@ -11,4 +12,5 @@ input_files/
 *.gz
 *_output/
 *.log
+*.rds
 

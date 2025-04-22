@@ -15,15 +15,19 @@
 
 source /home/wangmk/.bashrc
 micromamba activate biobakery
-DIR=humann
+DIR=humann_output/subset_genes
 #make new regrouped directory
 #mkdir ${DIR}/join_regroup
 
 # join the gene tables
-humann_join_tables --input ${DIR} --file_name pathabundance --output ${DIR}/joint_metacyc_pathabundance.tsv
-humann_join_tables --input ${DIR} --file_name pathcoverage --output ${DIR}/joint_metacyc_pathcoverage.tsv
+# humann_join_tables --input ${DIR} --file_name pathabundance --output ${DIR}/joint_metacyc_pathabundance.tsv
+# humann_join_tables --input ${DIR} --file_name pathcoverage --output ${DIR}/joint_metacyc_pathcoverage.tsv
 humann_join_tables --input ${DIR} --file_name genefamilies --output ${DIR}/joint_uniref90.tsv
+sed -i 's/^[# \t]*//' ${DIR}/joint_uniref90.tsv 
+grep -v '^[^|]*|.*[^|]$' ${DIR}/joint_uniref90.tsv > ${DIR}/joint_uniref90_concise.tsv 
 humann_regroup_table --input ${DIR}/joint_uniref90.tsv --groups uniref90_ko -o ${DIR}/joint_ko_table.tsv
+sed -i 's/^[# \t]*//' ${DIR}/joint_ko_table.tsv 
+grep -v '^[^|]*|.*[^|]$' ${DIR}/joint_ko_table.tsv > ${DIR}/joint_ko_table_concise.tsv
 
 #regroup tables 
 #use the original .tsv and any uniref90 to another group documented in the humann2_regroup_table --help 
