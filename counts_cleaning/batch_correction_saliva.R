@@ -12,8 +12,8 @@ clean_ID <- function(sampleid){
 }
 
 
-saliva_batchinfo <- read.xlsx("metadata/Saliva_batchinfo.xlsx", sheet="QC and metadata")
-synonym_IDs <- read.csv("metadata/synonym_IDs.csv")
+saliva_batchinfo <- read.xlsx("../metadata/Saliva_batchinfo.xlsx", sheet="QC and metadata")
+synonym_IDs <- read.csv("../metadata/synonym_IDs.csv")
 saliva_batchinfo$findmatch <- 0
 
 
@@ -39,9 +39,9 @@ saliva_batchinfo$Sample_ID <- sapply(saliva_batchinfo$Sample_ID, clean_ID)
 
 
 
-saliva_taxa_count <- read.table("saliva_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
+saliva_taxa_count <- read.table("../saliva_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
                                 sep='\t')
-saliva_ko_abundance <- read.table("saliva_preprocessing/humann_output/joint_ko_table_concise.tsv",
+saliva_ko_abundance <- read.table("../saliva_preprocessing/humann_output/subset_genes/joint_ko_table_concise.tsv",
                                   sep='\t')
 colnames(saliva_taxa_count) <- gsub("[.]", "-", colnames(saliva_taxa_count))
 colnames(saliva_taxa_count) <- gsub("X", "", colnames(saliva_taxa_count))
@@ -68,7 +68,7 @@ prevalences <- colMeans(subset_saliva_ko_abundance > 0)
 subset_saliva_ko_abundance <- subset_saliva_ko_abundance[, prevalences > 0.1]
 
 
-metadata <- read.table("metadata/metadata_yr1_imputed.tsv",
+metadata <- read.table("../metadata/metadata_yr1_imputed.tsv",
                        sep='\t', header=1)
 rownames(metadata) <- as.character(metadata$BabySubjectID)
 indvonly <- function(sampleID) {
@@ -107,9 +107,9 @@ subset_saliva_taxa_count <- data.frame(subset_saliva_taxa_count)
 subset_saliva_taxa_count_corrected <- data.frame(subset_saliva_taxa_count_corrected)
 
 
-write.table(subset_saliva_taxa_count, "counts_cleaning/subset_saliva_taxa_count.tsv", sep="\t",
+write.table(subset_saliva_taxa_count, "subset_saliva_taxa_count.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_saliva_taxa_count_corrected, "counts_cleaning/subset_saliva_taxa_count_corrected.tsv", sep="\t",
+write.table(subset_saliva_taxa_count_corrected, "subset_saliva_taxa_count_corrected.tsv", sep="\t",
             quote=FALSE)
 
 
@@ -135,7 +135,7 @@ subset_saliva_ko_abundance_corrected <- tune_saliva_ko_abundance$tax_final
 
 
 
-write.table(subset_saliva_ko_abundance, "counts_cleaning/subset_saliva_ko_abundance.tsv", sep="\t",
+write.table(subset_saliva_ko_abundance, "subset_saliva_ko_abundance.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_saliva_ko_abundance_corrected, "counts_cleaning/subset_saliva_ko_abundance_corrected.tsv", sep="\t",
+write.table(subset_saliva_ko_abundance_corrected, "subset_saliva_ko_abundance_corrected.tsv", sep="\t",
             quote=FALSE)
