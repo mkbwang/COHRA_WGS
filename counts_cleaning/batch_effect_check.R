@@ -19,14 +19,19 @@ batch_plaque <- plaque_batchinfo$Batch
 names(batch_plaque) <- plaque_batchinfo$Sample
 batch_plaque <- batch_plaque[rownames(plaque_taxa_counts)]
 
+
+Plot_PCoA(plaque_taxa_counts, factor=batch_plaque, 
+          dissimilarity = "Bray")
+Plot_PCoA(plaque_taxa_counts_corrected, factor=batch_plaque, 
+          dissimilarity = "Bray")
 Plot_PCoA(plaque_ko_abundance, factor=batch_plaque, 
           dissimilarity = "Bray")
 Plot_PCoA(plaque_ko_abundance_corrected, factor=batch_plaque, 
           dissimilarity = "Bray")
-Plot_PCoA(plaque_ko_abundance, factor=batch_plaque, 
-          dissimilarity = "Aitch")
-Plot_PCoA(plaque_ko_abundance_corrected, factor=batch_plaque, 
-          dissimilarity = "Aitch")
+# Plot_PCoA(plaque_ko_abundance, factor=batch_plaque, 
+#           dissimilarity = "Aitch")
+# Plot_PCoA(plaque_ko_abundance_corrected, factor=batch_plaque, 
+#           dissimilarity = "Aitch")
 
 
 adonis2(coda.base::dist(plaque_taxa_counts+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
@@ -58,16 +63,18 @@ batch_saliva <- saliva_batchinfo$Sample_type
 names(batch_saliva) <- saliva_batchinfo$Sample_ID
 batch_saliva <- batch_saliva[rownames(saliva_taxa_counts)]
 
-
+Plot_PCoA(saliva_taxa_counts, factor=batch_saliva, 
+          dissimilarity = "Bray")
+Plot_PCoA(saliva_taxa_counts_corrected, factor=batch_saliva, 
+          dissimilarity = "Bray")
 Plot_PCoA(saliva_ko_abundance, factor=batch_saliva, 
           dissimilarity = "Bray")
 Plot_PCoA(saliva_ko_abundance_corrected, factor=batch_saliva, 
           dissimilarity = "Bray")
-
-Plot_PCoA(saliva_ko_abundance, factor=batch_saliva, 
-          dissimilarity = "Aitch")
-Plot_PCoA(saliva_ko_abundance_corrected, factor=batch_saliva, 
-          dissimilarity = "Aitch")
+# Plot_PCoA(saliva_ko_abundance, factor=batch_saliva, 
+#           dissimilarity = "Aitch")
+# Plot_PCoA(saliva_ko_abundance_corrected, factor=batch_saliva, 
+#           dissimilarity = "Aitch")
 
 
 adonis2(coda.base::dist(saliva_taxa_counts+0.5, method="aitchison") ~ batch_saliva, method="euclidean")

@@ -4,10 +4,10 @@ library(openxlsx)
 library(ConQuR)
 library(doParallel)
 
-plaque_batchinfo <- read.xlsx("metadata/Plaque_batchinfo.xlsx", sheet="Sheet1")
+plaque_batchinfo <- read.xlsx("../metadata/Plaque_batchinfo.xlsx", sheet="Sheet1")
 
 
-synonym_IDs <- read.csv("metadata/synonym_IDs.csv")
+synonym_IDs <- read.csv("../metadata/synonym_IDs.csv")
 
 plaque_batchinfo$findmatch <- 0
 
@@ -41,11 +41,11 @@ plaque_batchinfo$Sample <- sapply(plaque_batchinfo$Sample, clean_ID)
 
 
 
-plaque_taxa_count <- read.table("plaque_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
+plaque_taxa_count <- read.table("../plaque_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
                                 sep='\t')
 colnames(plaque_taxa_count) <- gsub("[.]", "-", colnames(plaque_taxa_count))
 colnames(plaque_taxa_count) <- gsub("X", "", colnames(plaque_taxa_count))
-plaque_ko_abundance <- read.table("plaque_preprocessing/humann_output/joint_ko_table_concise.tsv", 
+plaque_ko_abundance <- read.table("../plaque_preprocessing/humann_output/subset_genes/joint_ko_table_concise.tsv", 
                                   header=T, sep='\t')
 colnames(plaque_ko_abundance) <- gsub("[.]", "-", colnames(plaque_ko_abundance))
 colnames(plaque_ko_abundance) <- gsub("X", "", colnames(plaque_ko_abundance))
@@ -73,7 +73,7 @@ subset_plaque_ko_abundance <- subset_plaque_ko_abundance[, prevalences > 0.1]
 
 
 # retrieve metadata
-metadata <- read.table("metadata/metadata_yr1_imputed.tsv",
+metadata <- read.table("../metadata/metadata_yr1_imputed.tsv",
                        sep='\t', header=1)
 rownames(metadata) <- as.character(metadata$BabySubjectID)
 indvonly <- function(sampleID) {
@@ -111,9 +111,9 @@ subset_plaque_taxa_count_corrected <- tune_plaque_taxa_count$tax_final
 subset_plaque_taxa_count <- data.frame(subset_plaque_taxa_count)
 subset_plaque_taxa_count_corrected <- data.frame(subset_plaque_taxa_count_corrected)
 
-write.table(subset_plaque_taxa_count, "counts_cleaning/subset_plaque_taxa_count.tsv", sep="\t",
+write.table(subset_plaque_taxa_count, "subset_plaque_taxa_count.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_plaque_taxa_count_corrected, "counts_cleaning/subset_plaque_taxa_count_corrected.tsv", sep="\t",
+write.table(subset_plaque_taxa_count_corrected, "subset_plaque_taxa_count_corrected.tsv", sep="\t",
             quote=FALSE)
 
 # batch correction on plaque KEGG counts
@@ -134,12 +134,13 @@ tune_plaque_ko_abundance <- Tune_ConQuR(tax_tab=subset_plaque_ko_abundance,
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 
-subset_plaque_ko_abundance <- data.frame(subset_plaque_ko_abundance)
-subset_plaque_ko_abundance_corrected <- data.frame(subset_plaque_ko_abundance_corrected)
+# subset_plaque_ko_abundance <- data.frame(subset_plaque_ko_abundance)
+subset_plaque_ko_abundance_corrected <- tune_plaque_ko_abundance$tax_final
+# subset_plaque_ko_abundance_corrected <- data.frame(subset_plaque_ko_abundance_corrected)
 
-write.table(subset_plaque_ko_abundance, "counts_cleaning/subset_plaque_ko_abundance.tsv", sep="\t",
+write.table(subset_plaque_ko_abundance, "subset_plaque_ko_abundance.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_plaque_ko_abundance_corrected, "counts_cleaning/subset_plaque_ko_abundance_corrected.tsv", sep="\t",
+write.table(subset_plaque_ko_abundance_corrected, "subset_plaque_ko_abundance_corrected.tsv", sep="\t",
             quote=FALSE)
 
 
