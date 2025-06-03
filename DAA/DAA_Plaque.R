@@ -44,3 +44,17 @@ plot(plaque_DA_ko_result, n.label=20)
 plaque_DA_ko_table <- summary(plaque_DA_ko_result) |> arrange(pval)
 write.table(plaque_DA_ko_table, "DAA/yr1/plaque/ko/plaque_DA_ko_table.tsv",
             sep='\t', quote=FALSE, row.names=FALSE)
+
+
+
+## DAA of uniref
+plaque_uniref_count_yr1 <- read.table(file.path(folder, "plaque_uniref_counts_yr1.tsv"), sep='\t')
+min_pos_value <- min(plaque_uniref_count_yr1[plaque_uniref_count_yr1 > 0])
+plaque_uniref_phyloseq <- phyloseq(otu_table(plaque_uniref_count_yr1, taxa_are_rows = F),
+                               sample_data(metadata_plaque_yr1))
+plaque_DA_uniref_result <- adapt(plaque_uniref_phyloseq, cond.var="Case_status",
+                             censor=min_pos_value, prev.filter=0.1)
+plot(plaque_DA_uniref_result, n.label=20)
+plaque_DA_uniref_table <- summary(plaque_DA_uniref_result) |> arrange(pval)
+write.table(plaque_DA_uniref_table, "DAA/yr1/plaque/plaque_DA_uniref_table.tsv",
+            sep='\t', quote=FALSE, row.names=FALSE)

@@ -44,3 +44,17 @@ plot(saliva_DA_ko_result, n.label=20)
 saliva_DA_ko_table <- summary(saliva_DA_ko_result) |> arrange(pval)
 write.table(saliva_DA_ko_table, "DAA/yr1/saliva/ko/saliva_DA_ko_table.tsv",
             sep='\t', quote=FALSE, row.names=FALSE)
+
+
+## DAA of uniref
+saliva_uniref_count_yr1 <- read.table(file.path(folder, "saliva_uniref_counts_yr1.tsv"), sep='\t')
+min_pos_value <- min(saliva_uniref_count_yr1[saliva_uniref_count_yr1 > 0])
+saliva_uniref_phyloseq <- phyloseq(otu_table(saliva_uniref_count_yr1, taxa_are_rows = F),
+                                   sample_data(metadata_saliva_yr1))
+saliva_DA_uniref_result <- adapt(saliva_uniref_phyloseq, cond.var="Case_status",
+                                 censor=min_pos_value, prev.filter=0.1)
+plot(saliva_DA_uniref_result, n.label=20)
+saliva_DA_uniref_table <- summary(saliva_DA_uniref_result) |> arrange(pval)
+write.table(saliva_DA_uniref_table, "DAA/yr1/saliva/saliva_DA_uniref_table.tsv",
+            sep='\t', quote=FALSE, row.names=FALSE)
+

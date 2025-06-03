@@ -16,6 +16,12 @@ plaque_ko_counts <- read.table(file="counts_cleaning/subset_plaque_ko_abundance_
                                header=T)
 saliva_ko_counts <- read.table(file="counts_cleaning/subset_saliva_ko_abundance_corrected.tsv",
                                header=T)
+plaque_uniref_counts <- read.table(file="counts_cleaning/subset_plaque_uniref_abundance_corrected.tsv",
+                                   header=T)
+saliva_uniref_counts <- read.table(file="counts_cleaning/subset_saliva_uniref_abundance_corrected.tsv",
+                                   header=T)
+
+
 
 
 
@@ -104,6 +110,25 @@ write.table(plaque_ko_counts_split$count_yr1, "counts_cleaning/strata/plaque_ko_
             sep='\t', quote=F)
 write.table(plaque_ko_counts_split$count_yr2, "counts_cleaning/strata/plaque_ko_counts_yr2.tsv",
             sep='\t', quote=F)
+
+
+
+## saliva uniref
+
+saliva_uniref_counts_split <- split_by_year(saliva_uniref_counts)
+write.table(saliva_uniref_counts_split$count_yr1, "counts_cleaning/strata/saliva_uniref_counts_yr1.tsv",
+            sep='\t', quote=F)
+write.table(saliva_uniref_counts_split$count_yr2, "counts_cleaning/strata/saliva_uniref_counts_yr2.tsv",
+            sep='\t', quote=F)
+
+
+## plaque uniref
+plaque_uniref_counts_split <- split_by_year(plaque_uniref_counts)
+write.table(plaque_uniref_counts_split$count_yr1, "counts_cleaning/strata/plaque_uniref_counts_yr1.tsv",
+            sep='\t', quote=F)
+write.table(plaque_uniref_counts_split$count_yr2, "counts_cleaning/strata/plaque_uniref_counts_yr2.tsv",
+            sep='\t', quote=F)
+
 
 ## metadata at year 1
 
