@@ -3,7 +3,7 @@ rm(list=ls())
 library(BenchmarkDenoise)
 
 # load observed counts and metadata
-saliva_counts <- read.table("counts_cleaning/strata/saliva_ko_counts_yr1.tsv",
+saliva_counts <- read.table("counts_cleaning/strata/saliva_taxa_counts_yr1.tsv",
                             header=TRUE, sep="\t", row.names=1) |> as.matrix()
 metadata_saliva_yr1 <- read.table("counts_cleaning/strata/metadata_saliva_yr1.tsv",
                                   header=T, sep='\t')
@@ -12,15 +12,15 @@ saliva_counts_imputed <- simple_impute(saliva_counts, scale=0.5) |> t()
 
 
 # load DAA results
-DAA_ko_results <- read.table("DAA/yr1/saliva/ko/saliva_DA_ko_table.tsv",
+DAA_taxa_results <- read.table("DAA/yr1/saliva/taxa/saliva_DA_taxa_table.tsv",
                              sep='\t', header=1)
-marker_KO <- DAA_ko_results$Taxa[DAA_ko_results$pval < 0.05]
+marker_taxa <- DAA_taxa_results$Taxa[DAA_taxa_results$pval < 0.1]
 
 
 
 
 # start with DAA markers
-saliva_counts <- saliva_counts[, marker_KO]
+saliva_counts <- saliva_counts[, marker_taxa]
 clr_saliva_counts <- clr_transform(saliva_counts)
 colnames(clr_saliva_counts) <- colnames(saliva_counts)
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
@@ -43,14 +43,14 @@ names(selection_frequency) <- colnames(coefficients) <- colnames(clr_saliva_coun
 hist(selection_frequency, nclass=20)
 
 library(pROC)
-AUCs <- matrix(0, nrow=100, ncol=5)
-frequency_cutoffs <- c(0.05, 0.1, 0.15, 0.2, 0.25)
-variables_selected <- rep("", 5)
+AUCs <- matrix(0, nrow=100, ncol=8)
+frequency_cutoffs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+variables_selected <- rep("", 8)
 
-for (j in 1:5){
+for (j in 1:8){
   
-  marker_KO <- names(which(selection_frequency > frequency_cutoffs[j]))
-  subset_coefficient_mean <- colMeans(coefficients[, marker_KO])
+  marker_taxa <- names(which(selection_frequency > frequency_cutoffs[j]))
+  subset_coefficient_mean <- colMeans(coefficients[, marker_taxa])
   
   
   positive_features <- which(subset_coefficient_mean > 0) |> names()
@@ -102,8 +102,8 @@ plot_performance <- ggplot(performance, aes(x=VarSelect, y=AUC)) +
   xlab("Number of Features") + ylab("AUROC")
 
 best_cutoff <- avg_performance$Threshold[which.max(avg_performance$AUC)]
-marker_KO <- names(which(selection_frequency > best_cutoff))
-subset_coefficient_mean <- colMeans(coefficients[, marker_KO])
+marker_taxa <- names(which(selection_frequency > best_cutoff))
+subset_coefficient_mean <- colMeans(coefficients[, marker_taxa])
 
 
 positive_features <- which(subset_coefficient_mean > 0) |> names()
@@ -114,7 +114,7 @@ predictive_features <- list(positive_features=positive_features,
                             AUCs = performance$AUC[performance$Threshold == best_cutoff])
 
 saveRDS(predictive_features,
-        "lasso_logistic/KEGG/saliva_predictive_features_yr1.rds")
+        "lasso_logistic/taxa/saliva_predictive_features_yr1.rds")
 
 
 

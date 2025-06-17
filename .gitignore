@@ -8,6 +8,7 @@
 *.xlsx
 *.Rproj
 *.png
+*.pdf
 input_files/
 *.gz
 *_output/

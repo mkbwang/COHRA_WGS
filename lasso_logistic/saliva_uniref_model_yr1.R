@@ -2,6 +2,8 @@
 rm(list=ls())
 library(BenchmarkDenoise)
 library(dplyr)
+
+
 # load observed counts and metadata
 saliva_counts <- read.table("counts_cleaning/strata/saliva_uniref_counts_yr1.tsv",
                             header=TRUE, sep="\t", row.names=1) |> as.matrix()
@@ -18,152 +20,137 @@ DAA_uniref_results_positive <- DAA_uniref_results %>% filter(log10foldchange > 0
 DAA_uniref_results_negative <- DAA_uniref_results %>% filter(log10foldchange < 0) %>% arrange(pval)
 
 marker_uniref <- c(DAA_uniref_results_positive$Taxa[DAA_uniref_results_positive$pval < 0.01],
-                   DAA_uniref_results_negative$Taxa[DAA_uniref_results_negative$pval < 1e-4])
+                   DAA_uniref_results_negative$Taxa[DAA_uniref_results_negative$pval < 0.01])
+
+
+# start with DAA markers to fit clr-lasso model
+saliva_counts <- saliva_counts_imputed[, marker_uniref]
+
+clr_saliva_counts <- clr_transform(saliva_counts)
+colnames(clr_saliva_counts) <- colnames(saliva_counts)
 
 
 
-# start with DAA markers
-saliva_counts_imputed_0 <- saliva_counts_imputed[, marker_uniref]
-
-
-source("lasso_logistic/codalasso_utils.R")
-lambdas_0 <- c(0.05, 0.1, 0.15,  0.2, 0.25)
-result_0 <- repeat_codalasso(y=diagnoses, X=saliva_counts_imputed_0,
-                             lambdas=lambdas_0, train_prop=0.6, times=100, ncores=6)
-
-result_0$features <- marker_uniref
-
-train_auc_0 <- result_0$train_auc
-rowMeans(train_auc_0)
-test_auc_0 <- result_0$test_auc
-rowMeans(test_auc_0)
-coefs_list_0 <- result_0$coefs_list
-best_choice_0 <- which.max(rowMeans(test_auc_0))
-best_coefs_0 <- coefs_list_0[[best_choice_0]]
-selection_frequency_0 <- colMeans(best_coefs_0 != 0)
-
-
-
-# pick subset of markers which are selected over half of the times
-
-subset_features <- which(selection_frequency_0 >= 0.5)
-saliva_counts_imputed_1 <- saliva_counts_imputed_0[, subset_features]
-lambdas_1 <- c(0, 0.05, 0.1, 0.15, 0.2)
-result_1 <- repeat_codalasso(y=diagnoses, X=saliva_counts_imputed_1,
-                             lambdas=lambdas_1, train_prop=0.6, times=100, ncores=6)
-result_1$features <- colnames(saliva_counts_imputed_1)
-
-train_auc_1 <- result_1$train_auc
-rowMeans(train_auc_1)
-test_auc_1 <- result_1$test_auc
-rowMeans(test_auc_1)
-coefs_list_1 <- result_1$coefs_list
-best_choice_1 <- which.max(rowMeans(test_auc_1))
-best_coefs_1 <- coefs_list_1[[best_choice_1]]
-selection_frequency_1 <- colMeans(best_coefs_1 != 0)
-
-
-
-
-# pick subset of markers which are selected over 80% of times
-
-subset_features <- which(selection_frequency_1 > 0.85)
-saliva_counts_imputed_2 <- saliva_counts_imputed_1[, subset_features]
-lambdas_2 <- c(0, 0.05, 0.1, 0.15, 0.2)
-result_2 <- repeat_codalasso(y=diagnoses, X=saliva_counts_imputed_2,
-                             lambdas=lambdas_2, train_prop=0.6, times=100, ncores=6)
-result_2$features <- colnames(saliva_counts_imputed_2)
-
-train_auc_2 <- result_2$train_auc
-rowMeans(train_auc_2)
-test_auc_2 <- result_2$test_auc
-rowMeans(test_auc_2)
-coefs_list_2 <- result_2$coefs_list
-best_choice_2 <- which.max(rowMeans(test_auc_2))
-best_coefs_2 <- coefs_list_2[[best_choice_2]]
-selection_frequency_2 <- colMeans(best_coefs_2 != 0)
-
-
-output <- list(result_0, result_1, result_2)
-
-saveRDS(output, "lasso_logistic/uniref/saliva_yr1.rds")
-
-
-
-
-# visualize the results
-combined_results <- readRDS("lasso_logistic/uniref/saliva_yr1.rds")
-result_1 <- combined_results[[1]]
-selected_index <- which.max(rowMeans(result_1$test_auc))
-auc_df_1 <- data.frame(Train=result_1$train_auc[selected_index, ],
-                       Test=result_1$test_auc[selected_index, ],
-                       Iteration="First Iteration")
-
-result_2 <- combined_results[[2]]
-selected_index <- which.max(rowMeans(result_2$test_auc))
-auc_df_2 <- data.frame(Train=result_2$train_auc[selected_index, ],
-                       Test=result_2$test_auc[selected_index, ],
-                       Iteration="Second Iteration")
-
-result_3 <- combined_results[[3]]
-selected_index <- which.max(rowMeans(result_3$test_auc))
-auc_df_3 <- data.frame(Train=result_3$train_auc[selected_index, ],
-                       Test=result_3$test_auc[selected_index, ],
-                       Iteration="Third Iteration")
-
-auc_df <- rbind(auc_df_1, auc_df_2, auc_df_3)
-library(reshape2)
-
-auc_df_long <- melt(auc_df, id.vars="Iteration", 
-                    variable.name="Type", value.name="AUC")
-
-auc_df_long$Type <- factor(auc_df_long$Type, levels=c("Train", "Test"))
-
-auc_plot <- ggplot(auc_df_long, aes(x=Type, y=AUC)) + 
-  geom_boxplot() + xlab("") + ylab("AUC") + 
-  ylim(0.5, 1)+
-  facet_wrap(vars(Iteration), ncol=3) 
-
-
-
-features_3 <- result_3$features
-DAA_subset_result <- DAA_uniref_results %>% filter(Taxa %in% features_3)
-pos_features <- DAA_subset_result$Taxa[DAA_subset_result$log10foldchange < 0]
-neg_features <- DAA_subset_result$Taxa[DAA_subset_result$log10foldchange > 0]
-
-feature_pairs <- expand.grid(pos_features, neg_features) |> as.data.frame()
-feature_pairs$Var1 <- as.character(feature_pairs$Var1)
-feature_pairs$Var2 <- as.character(feature_pairs$Var2)
-
-scatter_plots <- list()
-for (j in 1:nrow(feature_pairs)){
-  
-  feature_x <- feature_pairs$Var1[j]
-  feature_y <- feature_pairs$Var2[j]
-  counts_subset <- saliva_counts_imputed[, c(feature_x, feature_y)] |>
-    as.data.frame()
-  counts_subset$Caries <- as.factor(diagnoses)
-  
-  lab_x <- gsub("UniRef90_", "", feature_x)
-  lab_y <- gsub("UniRef90_", "", feature_y)
-  
-  scatter_plots[[j]] <- ggplot(counts_subset, aes(x=.data[[feature_x]], 
-                                                  y=.data[[feature_y]], color=Caries)) + 
-    geom_point(size=1, alpha=0.7) + 
-    scale_x_log10() + scale_y_log10()+
-    xlab(lab_x) +
-    ylab(lab_y)
+coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
+train_auc <- rep(0, 100)
+test_auc <- rep(0, 100)
+for (j in 1:100){
+  print(j)
+  model <- fit_logistic_lasso(input=clr_saliva_counts,
+                                output=diagnoses, train_prop=0.7, seed=j)
+  coefficients[j, ] <- model$coefs[-1]
+  train_auc[j] <- model$train_auc
+  test_auc[j] <- model$test_auc
   
 }
 
-library(patchwork)
+# check variables that are most frequently selected, split into positive and negative
+selection_frequency <- colMeans(coefficients != 0)
+names(selection_frequency) <- colnames(coefficients) <- colnames(clr_saliva_counts)
+hist(selection_frequency, nclass=20)
 
-all_plots <- wrap_plots(scatter_plots, nrow=length(neg_features)) +
-  plot_layout(guides="collect")
+library(pROC)
+AUCs <- matrix(0, nrow=100, ncol=6)
+frequency_cutoffs <- seq(0.1, 0.6, 0.1)
+variables_selected <- rep("", 6)
+
+for (j in 1:6){
+  
+  marker_uniref <- names(which(selection_frequency > frequency_cutoffs[j]))
+  subset_coefficient_mean <- colMeans(coefficients[, marker_uniref])
+  
+  
+  positive_features <- which(subset_coefficient_mean > 0) |> names()
+  negative_features <- which(subset_coefficient_mean < 0) |> names()
+  variables_selected[j] <- sprintf("%d+%d", 
+                                   length(positive_features), 
+                                   length(negative_features))
+  
+  counts_positive_features <- rowSums(saliva_counts_imputed[, positive_features])
+  counts_negative_features <- rowSums(saliva_counts_imputed[, negative_features])
+  
+  count_ratio <- counts_positive_features / counts_negative_features
+  
+  ## check the relative abundance of these unirefs
+  
+  df <- data.frame(cbind(diagnoses, log(count_ratio)))
+  colnames(df) <- c("diagnoses", "log_count_ratio")
+  
+  
+  for (k in 1:100){
+    
+    df_bootstrap <- df[sample(nrow(df), nrow(df)*0.8, replace=T), ]
+    
+    logistic_regression <- glm(diagnoses ~ log_count_ratio,
+                               family=binomial, data=df_bootstrap)
+    prediction <- logistic_regression$fitted.values
+    AUCs[k, j] <- auc(roc(response=df_bootstrap$diagnoses, 
+                          predictor=prediction)) |> suppressMessages()
+    
+  }
+
+}
 
 
+performance <- data.frame(Threshold=rep(frequency_cutoffs, each=100),
+                          VarSelect=rep(variables_selected, each=100),
+                          AUC=as.vector(AUCs))
+performance$VarSelect <- factor(performance$VarSelect,
+                                levels=variables_selected)
+
+avg_performance <- performance %>% group_by(VarSelect) %>%
+  summarise(AUC = mean(AUC),
+            Threshold = mean(Threshold))
 
 
+library(ggplot2)
+plot_performance <- ggplot(performance, aes(x=VarSelect, y=AUC)) + 
+  geom_boxplot() + 
+  xlab("Number of Features") + ylab("AUROC")
+
+best_cutoff <- avg_performance$Threshold[which.max(avg_performance$AUC)]
+marker_uniref <- names(which(selection_frequency > best_cutoff))
+subset_coefficient_mean <- colMeans(coefficients[, marker_uniref])
 
 
+positive_features <- which(subset_coefficient_mean > 0) |> names()
+negative_features <- which(subset_coefficient_mean < 0) |> names()
+
+predictive_features <- list(positive_features=positive_features,
+                            negative_features=negative_features,
+                            AUCs = performance$AUC[performance$Threshold == best_cutoff])
+
+saveRDS(predictive_features,
+        "lasso_logistic/uniref/saliva_predictive_features_yr1.rds")
+
+
+# archived: train/test split 
+
+# train_aucs <- rep(0, 100)
+# test_aucs <- rep(0, 100)
+# coefficients_final <- rep(0, 100)
+# # colnames(coefficients_final) <- colnames(log10relabd)
+# 
+# for(j in 1:100){
+#   
+#   train_id <- createDataPartition(y=factor(diagnoses), p=0.7, list=FALSE)
+#   df_train <- df[train_id, ]
+#   df_test <- df[-train_id, ]
+#   
+#   logistic_regression <- glm(diagnoses ~ log_count_ratio,
+#                              family=binomial, data=df_train)
+#   
+#   coefficients_final[j] <- logistic_regression$coefficients[-1]
+#   
+#   probabilities_train <- predict(logistic_regression, newdata=df_train,
+#                                  type="response")
+#   probabilities_test <- predict(logistic_regression, newdata=df_test,
+#                                 type="response")
+#   
+#   roc_obj_train <- roc(response=diagnoses[train_id], predictor=probabilities_train) |> suppressMessages()
+#   train_aucs[j] <- auc(roc_obj_train)
+#   roc_obj_test <- roc(response=diagnoses[-train_id], predictor=probabilities_test) |> suppressMessages()
+#   test_aucs[j] <- auc(roc_obj_test)
+#   
+# }
 
