@@ -1,60 +1,132 @@
 
 library(ADAPT)
 library(phyloseq)
+library(ggplot2)
+library(ggrepel)
 library(dplyr)
 rm(list=ls())
 
-folder <- "counts_cleaning/strata"
-
-metadata_saliva_yr1 <- read.table(file.path(folder, "metadata_saliva_yr1.tsv"), sep='\t')
 
 
-## DAA of taxa
-saliva_taxa_count_yr1 <- read.table(file.path(folder, "saliva_taxa_counts_yr1.tsv"), sep='\t')
-taxa_names <- colnames(saliva_taxa_count_yr1)
-noname <- grepl("GGB", taxa_names) | grepl("phylum", taxa_names)
-subset_taxa_names <- taxa_names[!noname]
-saliva_taxa_count_yr1 <- saliva_taxa_count_yr1[, subset_taxa_names]
-
-min_pos_value <- min(saliva_taxa_count_yr1[saliva_taxa_count_yr1 > 0])
-saliva_taxa_phyloseq <- phyloseq(otu_table(saliva_taxa_count_yr1, taxa_are_rows=FALSE),
-                                 sample_data(metadata_saliva_yr1))
-saliva_DA_taxa_result <- adapt(saliva_taxa_phyloseq, cond.var="Case_status",
-                               censor=1, prev.filter=0.1)
-plot(saliva_DA_taxa_result, n.label=10)
-
-saliva_DA_taxa_table <- summary(saliva_DA_taxa_result) |> arrange(pval)
-write.table(saliva_DA_taxa_table, "DAA/yr1/saliva/taxa/saliva_DA_taxa_table.tsv",
-            sep='\t', quote=FALSE, row.names=FALSE)
-
-
-
-## DAA of KEGG
-metabolism_KOs <- read.csv("counts_cleaning/metabolism_KOs.csv")
-metabolism_KOs <- metabolism_KOs$KEGG
-saliva_ko_count_yr1 <- read.table(file.path(folder, "saliva_ko_counts_yr1.tsv"), sep='\t')
-subset_kegg <- intersect(metabolism_KOs, colnames(saliva_ko_count_yr1))
-saliva_ko_count_yr1 <- saliva_ko_count_yr1[, subset_kegg]
-min_pos_value <- min(saliva_ko_count_yr1[saliva_ko_count_yr1 > 0])
-saliva_ko_phyloseq <- phyloseq(otu_table(saliva_ko_count_yr1, taxa_are_rows = F),
-                               sample_data(metadata_saliva_yr1))
-saliva_DA_ko_result <- adapt(saliva_ko_phyloseq, cond.var="Case_status",
-                               censor=min_pos_value, prev.filter=0.1)
-plot(saliva_DA_ko_result, n.label=20)
-saliva_DA_ko_table <- summary(saliva_DA_ko_result) |> arrange(pval)
-write.table(saliva_DA_ko_table, "DAA/yr1/saliva/ko/saliva_DA_ko_table.tsv",
-            sep='\t', quote=FALSE, row.names=FALSE)
+metadata_saliva <- read.table("metadata/metadata_yr1_imputed.tsv", sep="\t", header=1)
+rownames(metadata_saliva) <- metadata_saliva$BabySubjectID
+saliva_taxa_count <- read.csv("counts_cleaning/saliva_taxa_count_subset.csv",
+                              row.names=1) |> t() |> as.data.frame()
+saliva_taxa_count_corrected <- read.table("counts_cleaning/saliva_taxa_count_subset_corrected.tsv",
+                                          sep='\t', header=1, row.names=1) 
+rownames(saliva_taxa_count) <- rownames(saliva_taxa_count_corrected) <-
+  gsub("-5", "", rownames(saliva_taxa_count_corrected))
+colnames(saliva_taxa_count_corrected) <- colnames(saliva_taxa_count)
+taxa_names <- sapply(colnames(saliva_taxa_count), function(longname){
+  
+  species_name <- strsplit(longname, split="[|]")[[1]][7]
+  species_name <- gsub("s__", "", species_name)
+  return(species_name)
+  
+})
+colnames(saliva_taxa_count_corrected) <- colnames(saliva_taxa_count) <- unname(taxa_names)
+metadata_saliva <- metadata_saliva[rownames(saliva_taxa_count_corrected), ]
 
 
-## DAA of uniref
-saliva_uniref_count_yr1 <- read.table(file.path(folder, "saliva_uniref_counts_yr1.tsv"), sep='\t')
-min_pos_value <- min(saliva_uniref_count_yr1[saliva_uniref_count_yr1 > 0])
-saliva_uniref_phyloseq <- phyloseq(otu_table(saliva_uniref_count_yr1, taxa_are_rows = F),
-                                   sample_data(metadata_saliva_yr1))
-saliva_DA_uniref_result <- adapt(saliva_uniref_phyloseq, cond.var="Case_status",
-                                 censor=min_pos_value, prev.filter=0.1)
-plot(saliva_DA_uniref_result, n.label=20)
-saliva_DA_uniref_table <- summary(saliva_DA_uniref_result) |> arrange(pval)
-write.table(saliva_DA_uniref_table, "DAA/yr1/saliva/saliva_DA_uniref_table.tsv",
-            sep='\t', quote=FALSE, row.names=FALSE)
+# remove those that do not have genus names
+ggbs <- grepl("GGB", colnames(saliva_taxa_count_corrected))
+saliva_taxa_count <- saliva_taxa_count[, !ggbs]
+saliva_taxa_count_corrected <- saliva_taxa_count_corrected[, !ggbs]
+
+metadata_saliva$Case_status <- as.character(metadata_saliva$Case_status)
+
+phyobj_taxa <- phyloseq(otu_table(saliva_taxa_count, taxa_are_rows = FALSE),
+                        sample_data(metadata_saliva))
+
+phyobj_taxa_corrected <- phyloseq(otu_table(saliva_taxa_count_corrected, taxa_are_rows = FALSE),
+                        sample_data(metadata_saliva))
+
+plot_generation <- function(result, title_x, title_main, labeffsize=5, labpval=5){
+  
+  result$neglog10pval <- -log10(result$pval)
+  effsizes <- sort(result$log10foldchange)
+  pvals <- sort(result$pval)
+  
+  # pick the features to color and label
+  tolabel <- (result$log10foldchange <= effsizes[labeffsize] | 
+                result$log10foldchange >= tail(effsizes, labeffsize)[1] |
+                result$pval <= pvals[labpval])
+  
+  result$islabel <- tolabel
+  result$Label  <- ""
+  result$Label[tolabel] <- result$Taxa[tolabel]
+  
+  generated_plot <- ggplot(result, aes(x=.data$log10foldchange, y=.data$neglog10pval))+
+    geom_point(alpha=0.8, aes(color=.data$islabel)) +
+    xlab(title_x) + ylab("-Log10 p-value") + theme_bw() + 
+    theme(legend.position="none", axis.title=element_text(size=10), 
+          axis.text=element_text(size=10)) + 
+    scale_color_manual(values=c("#616161", "#ff0066")) +
+    geom_vline(xintercept=0, linetype="dashed", color = "blue") +
+    geom_label_repel(aes(label = .data$Label),
+                     size=2,
+                     max.overlaps = 20,
+                     box.padding   = 0.35,
+                     point.padding = 0.5,
+                     segment.color = 'grey50')+
+    ggtitle(title_main)
+  
+  return(generated_plot)
+  
+}
+
+
+DAA_taxa <- adapt(input_data=phyobj_taxa,
+                  cond.var="Case_status",base.cond="0",
+                  censor=1, prev.filter=0.05)
+DAA_taxa_table <- DAA_taxa@details 
+DAA_taxa_plot <- plot_generation(result=DAA_taxa_table,
+                                 title_x="Log10 fold change (Case vs Control)",
+                                 title_main="Taxa Differential Abundance in Saliva",
+                                 labeffsize=3, labpval=3)
+
+
+# DAA_taxa_corrected <- adapt(input_data=phyobj_taxa_corrected,
+#                   cond.var="Case_status",base.cond="0",
+#                   censor=1, prev.filter=0.05)
+# DAA_taxa_corrected_table <- DAA_taxa_corrected@details 
+# DAA_taxa_corrected_plot <- plot_generation(result=DAA_taxa_corrected_table,
+#                                  title_x="Log10 fold change (Case vs Control)",
+#                                  title_main="Taxa Differential Abundance in Saliva",
+#                                  labeffsize=5, labpval=5)
+
+
+
+saliva_ko_count <- read.csv("counts_cleaning/saliva_ko_abundance_subset.csv",
+                            row.names=1) |> t() |> as.data.frame()
+
+rownames(saliva_ko_count) <- rownames(saliva_taxa_count)
+
+phyobj_ko <- phyloseq(otu_table(saliva_ko_count, taxa_are_rows = FALSE),
+                        sample_data(metadata_saliva))
+
+DAA_ko <- adapt(input_data=phyobj_ko,
+                  cond.var="Case_status",base.cond="0",
+                  censor=min(saliva_ko_count[saliva_ko_count > 0]), 
+                prev.filter=0.05)
+
+DAA_ko_table <- DAA_ko@details 
+DAA_ko_plot <- plot_generation(result=DAA_ko_table,
+                                 title_x="Log10 fold change (Case vs Control)",
+                                 title_main="KEGG Differential Abundance in Saliva",
+                                 labeffsize=5, labpval=5)
+
+library(patchwork)
+combined_plots <- wrap_plots(DAA_taxa_plot, DAA_ko_plot,
+                             ncol=2)
+
+ggsave(filename="DAA/saliva_plot.pdf",
+       width=12, height=5,
+       plot=combined_plots)
+
+write.csv(DAA_taxa_table, "DAA/DAA_taxa_saliva.csv",
+          row.names=FALSE)
+write.csv(DAA_ko_table, "DAA/DAA_ko_saliva.csv",
+          row.names=FALSE)
+
 
