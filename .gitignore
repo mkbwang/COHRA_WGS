@@ -15,5 +15,6 @@ input_files/
 *.log
 *.rds
 *.Rmd
-
+*.svg
+*/archived/
 

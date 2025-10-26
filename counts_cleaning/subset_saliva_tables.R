@@ -10,6 +10,9 @@ saliva_taxa_count <- read.table("saliva_preprocessing/metaphlan_output/joint_tax
 saliva_ko_abundance <- read.table("saliva_preprocessing/humann_output/joint_ko_table_concise.tsv",
                                   sep='\t')
 
+metadata <- read.csv(file.path("metadata", "metadata_yr1.csv"))
+
+
 colnames(saliva_taxa_count) <- gsub("[.]", "-", colnames(saliva_taxa_count))
 colnames(saliva_taxa_count) <- gsub("X", "", colnames(saliva_taxa_count))
 colnames(saliva_ko_abundance) <- gsub("[.]", "-", colnames(saliva_ko_abundance))
@@ -21,13 +24,18 @@ saliva_taxa_count <- saliva_taxa_count[, yr1_filter]
 yr1_filter <- grepl("-5", colnames(saliva_ko_abundance))
 saliva_ko_abundance <- saliva_ko_abundance[, yr1_filter]
 
+sample_ids <- gsub("-5", "", colnames(saliva_taxa_count))
+metadata <- metadata %>% filter(BabySubjectID %in% sample_ids)
+
+
 
 ## filter samples based on library size
 saliva_libsizes <- colSums(saliva_taxa_count)
 saliva_taxa_count_subset <- saliva_taxa_count[, saliva_libsizes > 5e5]
 saliva_ko_abundance_subset <- saliva_ko_abundance[, saliva_libsizes > 5e5]
 saliva_ko_abundance_subset <- saliva_ko_abundance_subset[-1, ]
-
+sample_ids <- sample_ids[saliva_libsizes > 5e5]
+metadata <- metadata %>% filter(BabySubjectID %in% sample_ids)
 
 ## filter features based on prevalence
 prevalence_taxa <- rowMeans(saliva_taxa_count_subset > 0)

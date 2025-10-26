@@ -10,6 +10,8 @@ plaque_taxa_count <- read.table("plaque_preprocessing/metaphlan_output/joint_tax
 plaque_ko_abundance <- read.table("plaque_preprocessing/humann_output/joint_ko_table_concise.tsv",
                                   sep='\t')
 
+metadata <- read.csv(file.path("metadata", "metadata_yr1.csv"))
+
 colnames(plaque_taxa_count) <- gsub("[.]", "-", colnames(plaque_taxa_count))
 colnames(plaque_taxa_count) <- gsub("X", "", colnames(plaque_taxa_count))
 colnames(plaque_ko_abundance) <- gsub("[.]", "-", colnames(plaque_ko_abundance))
@@ -21,12 +23,17 @@ plaque_taxa_count <- plaque_taxa_count[, yr1_filter]
 yr1_filter <- grepl("-5", colnames(plaque_ko_abundance))
 plaque_ko_abundance <- plaque_ko_abundance[, yr1_filter]
 
+sample_ids <- gsub("-5", "", colnames(plaque_taxa_count))
+metadata <- metadata %>% filter(BabySubjectID %in% sample_ids)
+
 
 ## filter samples based on library size
 plaque_libsizes <- colSums(plaque_taxa_count)
 plaque_taxa_count_subset <- plaque_taxa_count[, plaque_libsizes > 5e5]
 plaque_ko_abundance_subset <- plaque_ko_abundance[, plaque_libsizes > 5e5]
 plaque_ko_abundance_subset <- plaque_ko_abundance_subset[-1, ]
+sample_ids <- sample_ids[plaque_libsizes > 5e5]
+metadata <- metadata %>% filter(BabySubjectID %in% sample_ids)
 
 
 ## filter features based on prevalence
