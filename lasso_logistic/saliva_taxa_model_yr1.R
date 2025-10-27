@@ -28,7 +28,7 @@ colnames(saliva_counts) <- colnames(saliva_counts_imputed) <- species_names
 saliva_counts <- saliva_counts[, marker_taxa]
 saliva_counts_imputed <- saliva_counts_imputed[, marker_taxa]
 
-clr_saliva_counts <- clr_transform(saliva_counts)
+clr_saliva_counts <- clr_transform(saliva_counts_imputed)
 colnames(clr_saliva_counts) <- colnames(saliva_counts)
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
 colnames(coefficients) <- colnames(clr_saliva_counts)
