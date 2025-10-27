@@ -1,9 +1,11 @@
 
 rm(list=ls())
 library(BenchmarkDenoise)
+library(ggplot2)
+library(dplyr)
 
 # load observed counts and metadata
-saliva_counts <- read.table("counts_cleaning/strata/saliva_taxa_counts_yr1.tsv",
+saliva_counts <- read.table("counts_cleaning/saliva_taxa_count_subset_corrected.tsv",
                             header=TRUE, sep="\t", row.names=1) |> as.matrix()
 metadata_saliva_yr1 <- read.table("counts_cleaning/strata/metadata_saliva_yr1.tsv",
                                   header=T, sep='\t')
@@ -12,15 +14,20 @@ saliva_counts_imputed <- simple_impute(saliva_counts, scale=0.5) |> t()
 
 
 # load DAA results
-DAA_taxa_results <- read.table("DAA/yr1/saliva/taxa/saliva_DA_taxa_table.tsv",
-                             sep='\t', header=1)
+DAA_taxa_results <- read.csv("DAA/DAA_taxa_saliva.csv")
 marker_taxa <- DAA_taxa_results$Taxa[DAA_taxa_results$pval < 0.1]
 
 
-
-
 # start with DAA markers
+shorten_names <- function(longname){
+  strsplit(longname, split="__")[[1]] |> tail(1)
+}
+species_names <- sapply(colnames(saliva_counts), shorten_names) |> unname()
+colnames(saliva_counts) <- colnames(saliva_counts_imputed) <- species_names
+
 saliva_counts <- saliva_counts[, marker_taxa]
+saliva_counts_imputed <- saliva_counts_imputed[, marker_taxa]
+
 clr_saliva_counts <- clr_transform(saliva_counts)
 colnames(clr_saliva_counts) <- colnames(saliva_counts)
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
@@ -37,85 +44,86 @@ for (j in 1:100){
   
 }
 
+auc_df <- data.frame(AUC=c(train_auc, test_auc),
+                     Sample=c(rep("Train", 100), rep("Test", 100)))
+auc_df$Sample <- factor(auc_df$Sample, levels=c("Train", "Test"))
+AUC_plot_1 <- ggplot(auc_df, aes(x=Sample, y=AUC)) + 
+  geom_boxplot() + scale_y_continuous(breaks=seq(0.5, 1, 0.05), limits=c(0.5, 1)) +
+  xlab("Sample") + ylab("AUROC")
+
+ggsave(filename="lasso_logistic/taxa/saliva_logisticlasso_raw.svg", AUC_plot_1,
+       width=4, height=4)
+
+
 # check variables that are most frequently selected, split into positive and negative
 selection_frequency <- colMeans(coefficients != 0)
 names(selection_frequency) <- colnames(coefficients) <- colnames(clr_saliva_counts)
-hist(selection_frequency, nclass=20)
+selection_frequency_df <- data.frame(Taxa=names(selection_frequency),
+                                     Frequency=selection_frequency)
+selection_frequency_df <- DAA_taxa_results %>% select(Taxa, prevalence, log10foldchange) %>% 
+  right_join(selection_frequency_df, by="Taxa")
+selection_frequency_df$Direction <- ifelse(selection_frequency_df$log10foldchange > 0, "Enriched in Cases", "Enriched in Controls")
+
+# look at taxa prevalence and 
+prev_freq_biplot <-  ggplot(selection_frequency_df, aes(x=prevalence, y=Frequency, color=Direction)) + 
+  geom_point()+ xlab("Prevalence") + ylab("LASSO Selection Probability") + 
+  scale_x_continuous(limits=c(0,1), breaks=seq(0, 1, 0.1))+
+  scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.1)) + 
+  scale_color_manual(values=c("#8B0000", "#00008B"))+
+  geom_hline(yintercept = 0.6, color = "black", linetype = "dashed", linewidth = 1)
+
+ggsave(filename="lasso_logistic/taxa/saliva_predictive_feature.svg", prev_freq_biplot,
+       width=6, height=4)
+
+
+subset_taxa_df <- selection_frequency_df %>% filter(prevalence > 0.2 & Frequency > 0.6)
+subset_taxa_df_numerator <- subset_taxa_df %>% filter(Direction == "Enriched in Cases")
+subset_taxa_df_denominator <- subset_taxa_df %>% filter(Direction == "Enriched in Controls")
+
+taxa_numerator <- subset_taxa_df_numerator$Taxa
+taxa_denominator <- subset_taxa_df_denominator$Taxa
+
+taxa_count_numerator <- rowSums(saliva_counts_imputed[, taxa_numerator])
+taxa_count_denominator <- rowSums(saliva_counts_imputed[, taxa_denominator])
+
+
+final_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
+                       LogRatio=log(taxa_count_numerator) - log(taxa_count_denominator))
+
+marker_boxplot <- ggplot(final_df, aes(x=CaseStatus, y=LogRatio)) + 
+  geom_boxplot() + xlab("Status") + ylab("Biomarker Value")
+
+ggsave(filename="lasso_logistic/taxa/saliva_biomarker_boxplot.svg", marker_boxplot,
+       width=4, height=4)
+
+logit_regression <-  glm(CaseStatus~LogRatio, data=final_df, family="binomial")
+
+predicted_logit <- predict(logit_regression)
+predicted_probability <- exp(predicted_logit) / (1 + exp(predicted_logit))
 
 library(pROC)
-AUCs <- matrix(0, nrow=100, ncol=8)
-frequency_cutoffs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-variables_selected <- rep("", 8)
+roc_obj <- roc(final_df$CaseStatus, predicted_probability)
+auc_value <- auc(roc_obj)
 
-for (j in 1:8){
-  
-  marker_taxa <- names(which(selection_frequency > frequency_cutoffs[j]))
-  subset_coefficient_mean <- colMeans(coefficients[, marker_taxa])
-  
-  
-  positive_features <- which(subset_coefficient_mean > 0) |> names()
-  negative_features <- which(subset_coefficient_mean < 0) |> names()
-  variables_selected[j] <- sprintf("%d+%d", 
-                                   length(positive_features), 
-                                   length(negative_features))
-  
-  counts_positive_features <- rowSums(saliva_counts_imputed[, positive_features, drop=FALSE])
-  counts_negative_features <- rowSums(saliva_counts_imputed[, negative_features, drop=FALSE])
-  
-  count_ratio <- counts_positive_features / counts_negative_features
-  
-  ## check the relative abundance of these unirefs
-  
-  df <- data.frame(cbind(diagnoses, log(count_ratio)))
-  colnames(df) <- c("diagnoses", "log_count_ratio")
-  
-  
-  for (k in 1:100){
-    
-    df_bootstrap <- df[sample(nrow(df), nrow(df)*0.8, replace=T), ]
-    
-    logistic_regression <- glm(diagnoses ~ log_count_ratio,
-                               family=binomial, data=df_bootstrap)
-    prediction <- logistic_regression$fitted.values
-    AUCs[k, j] <- auc(roc(response=df_bootstrap$diagnoses, 
-                          predictor=prediction)) |> suppressMessages()
-    
-  }
-  
-}
+roc_df <- data.frame(
+  Specificity = rev(roc_obj$specificities),
+  Sensitivity = rev(roc_obj$sensitivities)
+)
+
+roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
+  geom_line(color = "black") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+  labs(
+    title = sprintf("Saliva Taxa (AUC %.3f)", auc_value),
+    x = "False Positive Rate",
+    y = "True Positive Rate"
+  ) +
+  theme_bw()
 
 
-performance <- data.frame(Threshold=rep(frequency_cutoffs, each=100),
-                          VarSelect=rep(variables_selected, each=100),
-                          AUC=as.vector(AUCs))
-performance$VarSelect <- factor(performance$VarSelect,
-                                levels=variables_selected)
+ggsave(filename="lasso_logistic/taxa/saliva_AUROC.svg", roc_curve,
+       width=5, height=4)
 
-avg_performance <- performance %>% group_by(VarSelect) %>%
-  summarise(AUC = mean(AUC),
-            Threshold = mean(Threshold))
-
-
-library(ggplot2)
-plot_performance <- ggplot(performance, aes(x=VarSelect, y=AUC)) + 
-  geom_boxplot() + 
-  xlab("Number of Features") + ylab("AUROC")
-
-best_cutoff <- avg_performance$Threshold[which.max(avg_performance$AUC)]
-marker_taxa <- names(which(selection_frequency > best_cutoff))
-subset_coefficient_mean <- colMeans(coefficients[, marker_taxa])
-
-
-positive_features <- which(subset_coefficient_mean > 0) |> names()
-negative_features <- which(subset_coefficient_mean < 0) |> names()
-
-predictive_features <- list(positive_features=positive_features,
-                            negative_features=negative_features,
-                            AUCs = performance$AUC[performance$Threshold == best_cutoff])
-
-saveRDS(predictive_features,
-        "lasso_logistic/taxa/saliva_predictive_features_yr1.rds")
-
-
-
+write.csv(subset_taxa_df, "lasso_logistic/taxa/saliva_taxa_biomarkers.csv", row.names=FALSE,
+          quote=FALSE)
 
