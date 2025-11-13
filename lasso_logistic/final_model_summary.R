@@ -53,10 +53,32 @@ summarize_result <- function(outcome, count_table, marker,
 }
 
 
+map_uniref_ko <- function(uniref, mapping_file){
+  
+  command <- sprintf("grep %s %s", uniref, mapping_file)
+  output <- system(command, intern=TRUE)
+  kegg <- strsplit(output, split="\t")[[1]][1]
+  return(kegg)
+  
+}
+
+
+map_uniref_species <- function(uniref, mapping_file){
+  
+  command <- sprintf("grep %s %s", uniref, mapping_file)
+  output <- system(command, intern=TRUE)
+  species <- sapply(output, function(y) strsplit(y, "[|]")[[1]][2])
+  species <- species[!is.na(species)]
+  all_species <- paste(species, collapse=";")
+  return(all_species)
+  
+}
+
+
+
 # load taxa counts
 saliva_taxa_counts <- read.table("counts_cleaning/strata/saliva_taxa_counts_yr1.tsv",
                                  header=TRUE, sep="\t", row.names=1) |> as.matrix()
-saliva_taxa_counts <- simple_impute(saliva_taxa_counts) |> t()
 saliva_predictive_taxa <- readRDS("lasso_logistic/taxa/saliva_predictive_features_yr1.rds")
 saliva_taxa_results <- summarize_result(outcome=diagnoses_saliva_yr1,
                                         count_table=saliva_taxa_counts,
@@ -109,6 +131,45 @@ saliva_uniref_results <- summarize_result(outcome=diagnoses_saliva_yr1,
                                       type="Uniref")
 
 
+ko_ref_file <- "/home/wangmk/UM/Research/COHRA_WGS/lasso_logistic/map_ko_uniref90.txt"
+species_ref_file <- "/home/wangmk/UM/Research/COHRA_WGS/lasso_logistic/uniref/saliva_uniref90_details.txt"
+saliva_positive_unirefs <- saliva_uniref_results$biomarkers$positive_features
+saliva_positive_keggs <- rep("", length(saliva_positive_unirefs))
+saliva_positive_species <- rep("", length(saliva_positive_unirefs))
+for (j in 1:length(saliva_positive_unirefs)){
+  saliva_positive_keggs[j] <- map_uniref_ko(saliva_positive_unirefs[j],
+                                            ko_ref_file)
+  saliva_positive_species[j] <- map_uniref_species(saliva_positive_unirefs[j],
+                                                species_ref_file)
+}
+
+
+saliva_positive_df <- data.frame(Unirefs=saliva_positive_unirefs,
+                                 KEGGs=saliva_positive_keggs,
+                                 Species=saliva_positive_species)
+write.csv(saliva_positive_df, "lasso_logistic/uniref/saliva_positive.csv",
+          row.names=FALSE)
+
+
+saliva_negative_unirefs <- saliva_uniref_results$biomarkers$negative_features
+saliva_negative_keggs <- rep("", length(saliva_negative_unirefs))
+saliva_negative_species <- rep("", length(saliva_negative_unirefs))
+for (j in 1:length(saliva_negative_unirefs)){
+  saliva_negative_keggs[j] <- map_uniref_ko(saliva_negative_unirefs[j],
+                                            ko_ref_file)
+  saliva_negative_species[j] <- map_uniref_species(saliva_negative_unirefs[j],
+                                                   species_ref_file)
+}
+
+
+saliva_negative_df <- data.frame(Unirefs=saliva_negative_unirefs,
+                                 KEGGs=saliva_negative_keggs,
+                                 Species=saliva_negative_species)
+write.csv(saliva_negative_df, "lasso_logistic/uniref/saliva_negative.csv",
+          row.names=FALSE)
+
+
+
 plaque_uniref_counts <- read.table("counts_cleaning/strata/plaque_uniref_counts_yr1.tsv",
                                header=TRUE, sep="\t", row.names=1) |> as.matrix()
 plaque_predictive_uniref <- readRDS("lasso_logistic/uniref/plaque_predictive_features_yr1.rds")
@@ -117,6 +178,45 @@ plaque_uniref_results <- summarize_result(outcome=diagnoses_plaque_yr1,
                                       marker=plaque_predictive_uniref,
                                       input="Plaque",
                                       type="Uniref")
+
+
+ko_ref_file <- "/home/wangmk/UM/Research/COHRA_WGS/lasso_logistic/map_ko_uniref90.txt"
+species_ref_file <- "/home/wangmk/UM/Research/COHRA_WGS/lasso_logistic/uniref/plaque_uniref90_details.txt"
+plaque_positive_unirefs <- plaque_uniref_results$biomarkers$positive_features
+plaque_positive_keggs <- rep("", length(plaque_positive_unirefs))
+plaque_positive_species <- rep("", length(plaque_positive_unirefs))
+for (j in 1:length(plaque_positive_unirefs)){
+  plaque_positive_keggs[j] <- map_uniref_ko(plaque_positive_unirefs[j],
+                                            ko_ref_file)
+  plaque_positive_species[j] <- map_uniref_species(plaque_positive_unirefs[j],
+                                                   species_ref_file)
+}
+
+
+plaque_positive_df <- data.frame(Unirefs=plaque_positive_unirefs,
+                                 KEGGs=plaque_positive_keggs,
+                                 Species=plaque_positive_species)
+write.csv(plaque_positive_df, "lasso_logistic/uniref/plaque_positive.csv",
+          row.names=FALSE)
+
+
+plaque_negative_unirefs <- plaque_uniref_results$biomarkers$negative_features
+plaque_negative_keggs <- rep("", length(plaque_negative_unirefs))
+plaque_negative_species <- rep("", length(plaque_negative_unirefs))
+for (j in 1:length(plaque_negative_unirefs)){
+  plaque_negative_keggs[j] <- map_uniref_ko(plaque_negative_unirefs[j],
+                                            ko_ref_file)
+  plaque_negative_species[j] <- map_uniref_species(plaque_negative_unirefs[j],
+                                                   species_ref_file)
+}
+
+
+plaque_negative_df <- data.frame(Unirefs=plaque_negative_unirefs,
+                                 KEGGs=plaque_negative_keggs,
+                                 Species=plaque_negative_species)
+write.csv(plaque_negative_df, "lasso_logistic/uniref/plaque_negative.csv",
+          row.names=FALSE)
+
 
 
 roc_curves <- rbind(saliva_taxa_results$roc_coordinates,

@@ -9,6 +9,9 @@ saliva_counts <- read.table("counts_cleaning/saliva_ko_abundance_subset_correcte
                             header=TRUE, sep="\t", row.names=1) |> as.matrix()
 metadata_saliva_yr1 <- read.table("counts_cleaning/strata/metadata_saliva_yr1.tsv",
                                   header=T, sep='\t')
+saliva_batchinfo <- read.csv("metadata/saliva_batchinfo.csv")
+rownames(saliva_batchinfo) <- saliva_batchinfo$Sample_ID
+saliva_batchinfo <- saliva_batchinfo[rownames(saliva_counts), ]
 diagnoses <- (metadata_saliva_yr1$Case_status)
 saliva_counts_imputed <- simple_impute(saliva_counts, scale=0.5) |> t()
 
@@ -28,6 +31,7 @@ coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
 colnames(coefficients) <- colnames(clr_saliva_counts)
 train_auc <- rep(0, 100)
 test_auc <- rep(0, 100)
+set.seed(2025)
 for (j in 1:100){
   print(j)
   model <- fit_logistic_lasso(input=clr_saliva_counts,
@@ -65,13 +69,13 @@ prev_freq_biplot <-  ggplot(selection_frequency_df, aes(x=prevalence, y=Frequenc
   scale_x_continuous(limits=c(0,1), breaks=seq(0, 1, 0.1))+
   scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.1)) + 
   scale_color_manual(values=c("#8B0000", "#00008B"))+
-  geom_hline(yintercept = 0.25, color = "black", linetype = "dashed", linewidth = 1)
+  geom_hline(yintercept = 0.4, color = "black", linetype = "dashed", linewidth = 1)
 
 ggsave(filename="lasso_logistic/KEGG/saliva_predictive_feature.svg", prev_freq_biplot,
        width=6, height=4)
 
 
-subset_ko_df <- selection_frequency_df %>% filter(Frequency > 0.5)
+subset_ko_df <- selection_frequency_df %>% filter(Frequency > 0.4)
 subset_ko_df_numerator <- subset_ko_df %>% filter(Direction == "Enriched in Cases")
 subset_ko_df_denominator <- subset_ko_df %>% filter(Direction == "Enriched in Controls")
 
@@ -81,13 +85,24 @@ ko_denominator <- subset_ko_df_denominator$KEGG
 ko_count_numerator <- saliva_counts_imputed[, ko_numerator]
 ko_count_denominator <- saliva_counts_imputed[, ko_denominator]
 
+# confirm that it is not the batch effects that affect the presence absence issue of K00260
+predictors_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
+                   Batch=saliva_batchinfo$Sample_type)
+predictors_df <- cbind(predictors_df, saliva_counts[, subset_ko_df$KEGG])
+presence_df <- predictors_df %>% group_by(CaseStatus, Batch) %>% summarise(presence=mean(K00260 > 0))
+
 
 final_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
-                       LogRatio=log(ko_count_numerator) - log(ko_count_denominator))
+                       Batch=saliva_batchinfo$Sample_type,
+                       lognumerator=log(rowSums(ko_count_numerator)),
+                       logdenominator=log(ko_count_denominator))
+final_df$LogRatio <- final_df$lognumerator - final_df$logdenominator
+
 final_df$Outcome <- 1*(final_df$CaseStatus == "Case")
 
 marker_boxplot <- ggplot(final_df, aes(x=CaseStatus, y=LogRatio)) + 
   geom_boxplot() + xlab("Status") + ylab("Biomarker Value")
+
 
 ggsave(filename="lasso_logistic/KEGG/saliva_biomarker_boxplot.svg", marker_boxplot,
        width=4, height=4)
@@ -110,7 +125,7 @@ roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
   geom_line(color = "black") +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
   labs(
-    title = sprintf("Saliva ko (AUC %.3f)", auc_value),
+    title = sprintf("Saliva KEGG (AUC %.3f)", auc_value),
     x = "False Positive Rate",
     y = "True Positive Rate"
   ) +

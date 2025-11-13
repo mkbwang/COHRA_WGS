@@ -55,12 +55,15 @@ adonis2(plaque_taxa_count_normalized ~ batch_plaque, method="hellinger")
 adonis2(plaque_taxa_counts_corrected ~ batch_plaque, method="hellinger")
 adonis2(plaque_taxa_count_normalized ~ batch_plaque, method="jaccard")
 adonis2(plaque_taxa_counts_corrected ~ batch_plaque, method="jaccard")
-
+adonis2(plaque_taxa_count_normalized ~ batch_plaque, method="bray")
+adonis2(plaque_taxa_counts_corrected ~ batch_plaque, method="bray")
 
 adonis2(coda.base::dist(plaque_ko_abundance_normalized+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
 adonis2(coda.base::dist(plaque_ko_abundance_corrected+0.5, method="aitchison") ~ batch_plaque, method="euclidean")
 adonis2(plaque_ko_abundance_normalized ~ batch_plaque, method="hellinger")
 adonis2(plaque_ko_abundance_corrected ~ batch_plaque, method="hellinger")
+adonis2(plaque_ko_abundance_normalized ~ batch_plaque, method="bray")
+adonis2(plaque_ko_abundance_corrected ~ batch_plaque, method="bray")
 # adonis2(plaque_ko_abundance ~ batch_plaque, method="jaccard")
 # adonis2(plaque_ko_abundance_corrected ~ batch_plaque, method="jaccard")
 
@@ -124,7 +127,8 @@ adonis2(saliva_taxa_count_normalized ~ batch_saliva, method="hellinger")
 adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="hellinger")
 adonis2(saliva_taxa_count_normalized ~ batch_saliva, method="jaccard")
 adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="jaccard")
-
+adonis2(saliva_taxa_count_normalized ~ batch_saliva, method="bray")
+adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="bray")
 
 adonis2(coda.base::dist(saliva_ko_abundance_normalized+0.1, method="aitchison") ~ batch_saliva, method="euclidean")
 adonis2(coda.base::dist(saliva_ko_abundance_corrected+0.1, method="aitchison") ~ batch_saliva, method="euclidean")
@@ -132,6 +136,9 @@ adonis2(saliva_ko_abundance_normalized ~ batch_saliva, method="hellinger")
 adonis2(saliva_ko_abundance_corrected ~ batch_saliva, method="hellinger")
 adonis2(saliva_ko_abundance ~ batch_saliva, method="jaccard")
 adonis2(saliva_ko_abundance_corrected ~ batch_saliva, method="jaccard")
+adonis2(saliva_taxa_count_normalized ~ batch_saliva, method="bray")
+adonis2(saliva_taxa_counts_corrected ~ batch_saliva, method="bray")
+
 
 
 # adonis2(coda.base::dist(saliva_uniref_abundance+0.5, method="aitchison") ~ batch_saliva, method="euclidean")
@@ -140,5 +147,6 @@ adonis2(saliva_ko_abundance_corrected ~ batch_saliva, method="jaccard")
 # adonis2(saliva_uniref_abundance_corrected ~ batch_saliva, method="hellinger")
 # adonis2(saliva_uniref_abundance ~ batch_saliva, method="jaccard")
 # adonis2(saliva_uniref_abundance_corrected ~ batch_saliva, method="jaccard")
+
 
 
