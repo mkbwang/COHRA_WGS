@@ -176,3 +176,58 @@ write.table(saliva_taxa_table,
 
 
 
+
+
+# uniref protein tables
+
+saliva_uniref_table <- read.table(file.path("saliva_preprocessing", "humann_output", 
+                                            "joint_uniref90_subset.tsv"),
+                              row.names=1, sep='\t', header=T)
+
+columns <- colnames(saliva_uniref_table)
+
+
+columns <- colnames(saliva_uniref_table)
+columns <- gsub("[A-Za-z]", "", columns)
+columns <- gsub("[[:punct:]]+$", "", columns)
+columns <- gsub("[.]", "-", columns)
+for (j in 1:length(columns)){
+  originalID <- columns[j]
+  location <- which(ID_matching$AltSubjectID == originalID)
+  if (length(location > 0)){
+    columns[j] <- ID_matching$BabySubjectID[location]
+  }
+}
+
+colnames(saliva_uniref_table) <- columns
+write.table(saliva_uniref_table, 
+            file=file.path("saliva_preprocessing", "humann_output", "joint_uniref90_subset.tsv"),
+            sep='\t', quote=FALSE)
+
+
+
+# 
+plaque_uniref_table <- read.table(file.path("plaque_preprocessing", "humann_output", "joint_uniref90_subset.tsv"),
+                                  row.names=1, sep='\t', header=T)
+
+columns <- colnames(plaque_uniref_table)
+
+columns <- gsub("[A-Za-z]", "", columns)
+columns <- gsub("[[:punct:]]+$", "", columns)
+columns <- gsub("[.]", "-", columns)
+for (j in 1:length(columns)){
+  originalID <- columns[j]
+  location <- which(ID_matching$AltSubjectID == originalID)
+  if (length(location) > 0){
+    columns[j] <- ID_matching$BabySubjectID[location]
+  }
+}
+
+colnames(plaque_uniref_table) <- columns
+write.table(plaque_uniref_table, 
+            file=file.path("plaque_preprocessing", "humann_output", "joint_uniref90_subset.tsv"),
+            sep='\t', quote=FALSE)
+
+
+
+

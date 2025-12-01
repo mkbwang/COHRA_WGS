@@ -5,7 +5,7 @@ library(dplyr)
 # load basic metadata (babyID, motherID and eventual case status)
 kids_diagnosis  <- read.xlsx("metadata/COHRA_2_metagenomic_samples_list.xlsx", sheet="Project_2")
 kids_diagnosis <- kids_diagnosis %>% filter(Visit==5) %>% select(BabysubjectID, Case_status, Yr_2) %>%
-  rename(BabySubjectID = BabysubjectID)
+  dplyr::rename(BabySubjectID = BabysubjectID)
 
 kids_diagnosis$MotherSubjectID <- kids_diagnosis$BabySubjectID - 1
 

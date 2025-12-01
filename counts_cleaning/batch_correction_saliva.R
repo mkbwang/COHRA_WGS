@@ -2,6 +2,7 @@ rm(list=ls())
 library(dplyr)
 library(openxlsx)
 library(ConQuR)
+library(sva)
 library(doParallel)
 
 
@@ -12,8 +13,8 @@ clean_ID <- function(sampleid){
 }
 
 
-saliva_batchinfo <- read.xlsx("../metadata/Saliva_batchinfo.xlsx", sheet="QC and metadata")
-synonym_IDs <- read.csv("../metadata/synonym_IDs.csv")
+saliva_batchinfo <- read.xlsx("metadata/Saliva_batchinfo.xlsx", sheet="QC and metadata")
+synonym_IDs <- read.csv("metadata/synonym_IDs.csv")
 saliva_batchinfo$findmatch <- 0
 
 
@@ -39,10 +40,11 @@ saliva_batchinfo$Sample_ID <- sapply(saliva_batchinfo$Sample_ID, clean_ID)
 
 
 
-saliva_taxa_count <- read.table("../saliva_preprocessing/metaphlan_output/joint_taxonomic_counts.tsv",
-                                sep='\t')
-saliva_ko_abundance <- read.table("../saliva_preprocessing/humann_output/subset_genes/joint_ko_table_concise.tsv",
-                                  sep='\t')
+saliva_taxa_count <- read.csv("counts_cleaning/saliva_taxa_count_subset.csv", row.names=1)
+saliva_ko_abundance <- read.csv("counts_cleaning/saliva_ko_abundance_subset.csv", row.names=1)
+
+
+
 colnames(saliva_taxa_count) <- gsub("[.]", "-", colnames(saliva_taxa_count))
 colnames(saliva_taxa_count) <- gsub("X", "", colnames(saliva_taxa_count))
 colnames(saliva_ko_abundance) <- gsub("[.]", "-", colnames(saliva_ko_abundance))
@@ -54,88 +56,101 @@ batch_numbers <- factor(saliva_batchinfo$Sample_type)
 names(batch_numbers) <- saliva_batchinfo$Sample_ID
 saliva_taxa_count <- t(saliva_taxa_count)
 saliva_ko_abundance <- t(saliva_ko_abundance)
-saliva_ko_abundance <- saliva_ko_abundance[, -1] # removed ungrouped and 
 subset_batch_numbers <- batch_numbers[rownames(saliva_taxa_count)]
-# retain samples whose library size bigger than 5e5
-libsizes <- rowSums(saliva_taxa_count) 
-subset_saliva_taxa_count <- saliva_taxa_count[libsizes > 5e5, ]
-subset_saliva_ko_abundance <- saliva_ko_abundance[libsizes > 5e5, ]
-subset_batch_numbers <- subset_batch_numbers[libsizes > 5e5]
-prevalences <- colMeans(subset_saliva_taxa_count > 0)
-# retain taxa whose taxa prevalence bigger than 0.1
-subset_saliva_taxa_count <- subset_saliva_taxa_count[, prevalences > 0.1] 
-prevalences <- colMeans(subset_saliva_ko_abundance > 0)
-subset_saliva_ko_abundance <- subset_saliva_ko_abundance[, prevalences > 0.1]
+subset_batch_numbers <- as.integer(subset_batch_numbers)
+
+# normalization
+normalize <- function(mymat, libsize=1e5){
+  output_mat <- mymat
+  for (j in 1:nrow(mymat)){
+    output_mat[j, ] <- mymat[j, ] / sum(mymat[j, ]) * libsize
+  }
+  return(output_mat)
+}
 
 
-metadata <- read.table("../metadata/metadata_yr1_imputed.tsv",
+med_libsize <- median(rowSums(saliva_taxa_count))
+saliva_taxa_count_normalized <- normalize(saliva_taxa_count, libsize=med_libsize)
+ps_taxa <- min(saliva_taxa_count_normalized[saliva_taxa_count_normalized > 0])
+saliva_taxa_count_normalized_log <- log(saliva_taxa_count_normalized + ps_taxa/2)
+
+med_libsize <- median(rowSums(saliva_ko_abundance))
+saliva_ko_abundance_normalized <- normalize(saliva_ko_abundance, libsize=med_libsize)
+ps_ko <- min(saliva_ko_abundance_normalized[saliva_ko_abundance_normalized > 0])
+saliva_ko_abundance_normalized_log <- log(saliva_ko_abundance_normalized + ps_ko/2)
+
+
+
+metadata <- read.table("metadata/metadata_yr1_imputed.tsv",
                        sep='\t', header=1)
 rownames(metadata) <- as.character(metadata$BabySubjectID)
 indvonly <- function(sampleID) {
   strsplit(sampleID, split="-")[[1]][1]
 }
-indvs <- sapply(rownames(subset_saliva_taxa_count), indvonly)
-metadata_allsaliva <- metadata[indvs, c("Cigarettes", "region")]
-#metadata_allsaliva$Education_HS <- factor(metadata_allsaliva$Education_HS)
-#metadata_allsaliva$HouseholdIncome_cat2 <- factor(metadata_allsaliva$HouseholdIncome_cat2)
-metadata_allsaliva$Cigarettes <- factor(metadata_allsaliva$Cigarettes)
-metadata_allsaliva$region <- factor(metadata_allsaliva$region)
+indvs <- sapply(rownames(saliva_taxa_count), indvonly)
+metadata_allsaliva <- metadata[indvs, ]
+casestatus <- metadata_allsaliva$Case_status
+covar_matrix <- cbind(metadata_allsaliva$Cigarettes == "Yes", 
+                      metadata_allsaliva$region == "WV") |> as.matrix()
 
 
 ## batch correct saliva taxa counts
-start.time <- Sys.time()
-tune_saliva_taxa_count <- Tune_ConQuR(tax_tab=subset_saliva_taxa_count,
-                                      batchid=subset_batch_numbers,
-                                      covariates = metadata_allsaliva,
-                                      batch_ref_pool = "human saliva",
-                                      logistic_lasso_pool = T,
-                                      quantile_type_pool = c("standard", "lasso"),
-                                      simple_match_pool = F,
-                                      lambda_quantile_pool = "2p/n",
-                                      interplt_pool=T,
-                                      frequencyL = 0.1,
-                                      frequencyU = 1,
-                                      taus=seq(0.01, 0.99, by=0.01),
-                                      num_core=12)
-end.time <- Sys.time()
 
+saliva_taxa_count_log_corrected <- ComBat(dat=t(saliva_taxa_count_normalized_log),
+                                          batch=subset_batch_numbers,
+                                          mod=covar_matrix,
+                                          par.prior=FALSE)
+saliva_taxa_count_corrected <- exp(saliva_taxa_count_log_corrected) - ps_taxa/2
+saliva_taxa_count_corrected[saliva_taxa_count_corrected < ps_taxa] <- 0
 
-subset_saliva_taxa_count_corrected <- tune_saliva_taxa_count$tax_final
-
-
-subset_saliva_taxa_count <- data.frame(subset_saliva_taxa_count)
-subset_saliva_taxa_count_corrected <- data.frame(subset_saliva_taxa_count_corrected)
-
-
-write.table(subset_saliva_taxa_count, "subset_saliva_taxa_count.tsv", sep="\t",
+saliva_taxa_count_corrected <- data.frame(t(saliva_taxa_count_corrected))
+write.table(saliva_taxa_count_corrected, "counts_cleaning/saliva_taxa_count_subset_corrected.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_saliva_taxa_count_corrected, "subset_saliva_taxa_count_corrected.tsv", sep="\t",
-            quote=FALSE)
+
 
 
 ## batch correct saliva KO abundance
-start.time <- Sys.time()
-tune_saliva_ko_abundance <- Tune_ConQuR(tax_tab=subset_saliva_ko_abundance,
-                                        batchid=subset_batch_numbers,
-                                        covariates = metadata_allsaliva,
-                                        batch_ref_pool = "human saliva",
-                                        logistic_lasso_pool = T,
-                                        quantile_type_pool = c("standard", "lasso"),
-                                        simple_match_pool = F,
-                                        lambda_quantile_pool = "2p/n",
-                                        interplt_pool=T,
-                                        frequencyL = 0.1,
-                                        frequencyU = 1,
-                                        taus=seq(0.01, 0.99, by=0.01),
-                                        num_core=12)
-end.time <- Sys.time()
-time.taken <- end.time - start.time
+saliva_ko_abundance_log_corrected <- ComBat(dat=t(saliva_ko_abundance_normalized_log),
+                                        batch=subset_batch_numbers,
+                                        mod=covar_matrix,
+                                        par.prior=FALSE)
+saliva_ko_abundance_corrected <- exp(saliva_ko_abundance_log_corrected) - ps_ko/2
+saliva_ko_abundance_corrected[saliva_ko_abundance_corrected < ps_ko] <- 0
 
-subset_saliva_ko_abundance_corrected <- tune_saliva_ko_abundance$tax_final
-
-
-
-write.table(subset_saliva_ko_abundance, "subset_saliva_ko_abundance.tsv", sep="\t",
+saliva_ko_abundance_corrected <- as.data.frame(t(saliva_ko_abundance_corrected))
+write.table(saliva_ko_abundance_corrected, "counts_cleaning/saliva_ko_abundance_subset_corrected.tsv", sep="\t",
             quote=FALSE)
-write.table(subset_saliva_ko_abundance_corrected, "subset_saliva_ko_abundance_corrected.tsv", sep="\t",
-            quote=FALSE)
+
+
+
+
+## batch correct saliva uniref abundance
+# saliva_uniref_abundance_log_corrected <- ComBat(dat=t(saliva_uniref_abundance_normalized_log),
+#                                             batch=subset_batch_numbers,
+#                                             mod=covar_matrix,
+#                                             par.prior=FALSE)
+# saliva_uniref_abundance_corrected <- exp(saliva_uniref_abundance_log_corrected) - ps_uniref/2
+# saliva_uniref_abundance_corrected[saliva_uniref_abundance_corrected < 0] <- 0
+
+# start.time <- Sys.time()
+# tune_saliva_uniref_abundance <- Tune_ConQuR(tax_tab=saliva_uniref_abundance,
+#                                         batchid=subset_batch_numbers,
+#                                         covariates = metadata_allsaliva,
+#                                         batch_ref_pool = "human saliva",
+#                                         logistic_lasso_pool = T,
+#                                         quantile_type_pool = c("standard", "lasso"),
+#                                         simple_match_pool = F,
+#                                         lambda_quantile_pool = "2p/n",
+#                                         interplt_pool=T,
+#                                         frequencyL = 0.1,
+#                                         frequencyU = 1,
+#                                         taus=seq(0.01, 0.99, by=0.01),
+#                                         num_core=12)
+# end.time <- Sys.time()
+# time.taken <- end.time - start.time
+
+# saliva_uniref_abundance_corrected <- as.data.frame(t(saliva_uniref_abundance_corrected))
+# write.table(saliva_uniref_abundance_corrected, "saliva_uniref_abundance_subset_corrected.tsv", sep="\t",
+#             quote=FALSE)
+
+
