@@ -7,10 +7,8 @@ Preprocessing and Analyzing whole genome sequencing of saliva and plaque samples
 
 * `counts_cleaning`: Aggregate the metaphlan and humann output counts into a count table. Apply batch effect correction.
 
-* `Table_1`: Evaluate the correlation between demographics (e.g., income, mothers' smoking habit, education, region) and dental caries rate
+* `DAA`: differential abundance analysis for both saliva and plaque with [ADAPT](https://doi.org/10.1093/bioinformatics/btae661).
 
-* `DAA`: differential abundance analysis for both saliva and plaque with MaasLin3
+* `lasso_logistic`: Lasso logistic regression on CLR transformed counts/abundances. 
 
-* `lasso_logistic`: Lasso logistic regression on CLR transformed counts/abundances. Repeat train/test split to find out frequently selected features and average AUC.
 
-* `network_analysis`: Among the taxa/KEGG orthologs that were selected at least once among the lasso logistic regressions, I use [SPIEC-EASI](https://github.com/zdk123/SpiecEasi) to identify highly correlated taxa/gene pairs, then use [leiden algorithm](https://www.nature.com/articles/s41598-019-41695-z) to cluster the nodes in the graph into clusters. Nodes with high degrees in each cluster and are frequently selected in lasso logistic regressions are considered "predictive" features.
