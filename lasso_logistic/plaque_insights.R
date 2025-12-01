@@ -1,6 +1,9 @@
 
 rm(list=ls())
+
 library(openxlsx)
+library(BenchmarkDenoise)
+library(dplyr)
 # further insight into plaque prediction results (Taxa)
 # load observed counts and metadata
 plaque_counts <- read.table("counts_cleaning/plaque_taxa_count_subset_corrected.tsv",
