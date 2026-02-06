@@ -3,6 +3,8 @@ rm(list=ls())
 library(BenchmarkDenoise)
 library(ggplot2)
 library(dplyr)
+library(openxlsx)
+library(stringr)
 
 # load observed counts and metadata
 plaque_counts <- read.table("counts_cleaning/plaque_taxa_count_subset_corrected.tsv",
@@ -15,6 +17,7 @@ plaque_counts_imputed <- simple_impute(plaque_counts, scale=0.5) |> t()
 
 # load DAA results
 DAA_taxa_results <- read.csv("DAA/DAA_taxa_plaque.csv")
+subset_taxa <- DAA_taxa_results$Taxa
 marker_taxa <- DAA_taxa_results$Taxa[DAA_taxa_results$pval < 0.1]
 
 
@@ -25,11 +28,12 @@ shorten_names <- function(longname){
 species_names <- sapply(colnames(plaque_counts), shorten_names) |> unname()
 colnames(plaque_counts) <- colnames(plaque_counts_imputed) <- species_names
 
-plaque_counts <- plaque_counts[, marker_taxa]
-plaque_counts_imputed <- plaque_counts_imputed[, marker_taxa]
+plaque_counts <- plaque_counts[, subset_taxa]
+plaque_counts_imputed <- plaque_counts_imputed[, subset_taxa]
 
 clr_plaque_counts <- clr_transform(plaque_counts_imputed)
 colnames(clr_plaque_counts) <- colnames(plaque_counts)
+clr_plaque_counts <- clr_plaque_counts[, marker_taxa]
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_plaque_counts))
 colnames(coefficients) <- colnames(clr_plaque_counts)
 train_auc <- rep(0, 100)
@@ -76,12 +80,26 @@ ggsave(filename="lasso_logistic/taxa/plaque_predictive_feature.svg", prev_freq_b
        width=6, height=4)
 
 
+
 subset_taxa_df <- selection_frequency_df %>% filter(Frequency > 0.6)
 subset_taxa_df_numerator <- subset_taxa_df %>% filter(Direction == "Enriched in Cases")
 subset_taxa_df_denominator <- subset_taxa_df %>% filter(Direction == "Enriched in Controls")
 
 taxa_numerator <- subset_taxa_df_numerator$Taxa
 taxa_denominator <- subset_taxa_df_denominator$Taxa
+
+# confirm that it is not the batch effects that affect the presence absence issue of taxa
+predictors_df <- data.frame(CaseStatus=ifelse(metadata_plaque_yr1$Case_status == 1, "Case", "Control"))
+predictors_df <- cbind(predictors_df, plaque_counts[, subset_taxa_df$Taxa])
+ctable_list <- list()
+for (taxa in c(taxa_numerator, taxa_denominator)){
+  
+  tname <- str_trunc(taxa, 30, side = "right", ellipsis = "...")
+  ctable_list[[tname]] <- as.data.frame(table(predictors_df$CaseStatus,  predictors_df[, taxa] > 0))
+}
+write.xlsx(ctable_list, file="lasso_logistic/taxa/plaque_taxa_presence_absence.xlsx")
+
+
 
 taxa_count_numerator <- rowSums(plaque_counts_imputed[, taxa_numerator])
 taxa_count_denominator <- rowSums(plaque_counts_imputed[, taxa_denominator])
@@ -124,6 +142,21 @@ roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
 
 ggsave(filename="lasso_logistic/taxa/plaque_AUROC.svg", roc_curve,
        width=5, height=4)
+
+
+# wilcoxon test of relative abundance
+libsizes <- rowSums(plaque_counts)
+pvals <- rep(0, nrow(subset_taxa_df))
+for(j in 1:nrow(subset_taxa_df)){
+  
+  feature_name <- subset_taxa_df$Taxa[j]
+  relabd <- plaque_counts[, feature_name] / libsizes
+  test_result <- wilcox.test(relabd, metadata_plaque_yr1$Case_status)
+  pvals[j] <- test_result$p.value
+  
+}
+
+subset_taxa_df$Pval <- pvals
 
 write.csv(subset_taxa_df, "lasso_logistic/taxa/plaque_taxa_biomarkers.csv", row.names=FALSE,
           quote=FALSE)

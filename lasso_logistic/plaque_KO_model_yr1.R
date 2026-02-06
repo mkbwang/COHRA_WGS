@@ -3,6 +3,7 @@ rm(list=ls())
 library(BenchmarkDenoise)
 library(ggplot2)
 library(dplyr)
+library(openxlsx)
 
 # load observed counts and metadata
 plaque_counts <- read.table("counts_cleaning/plaque_ko_abundance_subset_corrected.tsv",
@@ -15,15 +16,19 @@ plaque_counts_imputed <- simple_impute(plaque_counts, scale=0.5) |> t()
 
 # load DAA results
 DAA_ko_results <- read.csv("DAA/DAA_ko_plaque.csv")
+subset_ko <- DAA_ko_results$Taxa
 marker_ko <- DAA_ko_results$Taxa[DAA_ko_results$pval < 0.05]
 
 
 # start with DAA markers
-plaque_counts <- plaque_counts[, marker_ko]
-plaque_counts_imputed <- plaque_counts_imputed[, marker_ko]
+plaque_counts <- plaque_counts[, subset_ko]
+plaque_counts_imputed <- plaque_counts_imputed[, subset_ko]
+
 
 clr_plaque_counts <- clr_transform(plaque_counts_imputed)
 colnames(clr_plaque_counts) <- colnames(plaque_counts)
+clr_plaque_counts <- clr_plaque_counts[, marker_ko]
+
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_plaque_counts))
 colnames(coefficients) <- colnames(clr_plaque_counts)
 train_auc <- rep(0, 100)
@@ -65,19 +70,29 @@ prev_freq_biplot <-  ggplot(selection_frequency_df, aes(x=prevalence, y=Frequenc
   scale_x_continuous(limits=c(0,1), breaks=seq(0, 1, 0.1))+
   scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.1)) + 
   scale_color_manual(values=c("#8B0000", "#00008B"))+
-  geom_hline(yintercept = 0.25, color = "black", linetype = "dashed", linewidth = 1)
+  geom_hline(yintercept = 0.4, color = "black", linetype = "dashed", linewidth = 1)
 
 ggsave(filename="lasso_logistic/KEGG/plaque_predictive_feature.svg", prev_freq_biplot,
        width=6, height=4)
 
 
-subset_ko_df <- selection_frequency_df %>% filter(Frequency > 0.2)
+subset_ko_df <- selection_frequency_df %>% filter(Frequency > 0.4)
 subset_ko_df_numerator <- subset_ko_df %>% filter(Direction == "Enriched in Cases") %>% arrange(desc(Frequency))
 subset_ko_df_denominator <- subset_ko_df %>% filter(Direction == "Enriched in Controls")
-subset_ko_df <- rbind(subset_ko_df_numerator[1:4, ], subset_ko_df_denominator)
+subset_ko_df <- rbind(subset_ko_df_numerator, subset_ko_df_denominator)
 
-ko_numerator <- subset_ko_df_numerator$KEGG[1:4]
+ko_numerator <- subset_ko_df_numerator$KEGG
 ko_denominator <- subset_ko_df_denominator$KEGG
+
+# confirm that it is not the batch effects that affect the presence absence issue of taxa
+predictors_df <- data.frame(CaseStatus=ifelse(metadata_plaque_yr1$Case_status == 1, "Case", "Control"))
+predictors_df <- cbind(predictors_df, plaque_counts[, subset_ko_df$KEGG])
+ctable_list <- list()
+for (KEGG in c(ko_numerator, ko_denominator)){
+  ctable_list[[KEGG]] <- as.data.frame(table(predictors_df$CaseStatus,  predictors_df[, KEGG] > 0))
+}
+write.xlsx(ctable_list, file="lasso_logistic/KEGG/plaque_ko_presence_absence.xlsx")
+
 
 ko_count_numerator <- rowSums(plaque_counts_imputed[, ko_numerator, drop=FALSE])
 ko_count_denominator <- rowSums(plaque_counts_imputed[, ko_denominator, drop=FALSE])
@@ -120,6 +135,21 @@ roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
 
 ggsave(filename="lasso_logistic/KEGG/plaque_AUROC.svg", roc_curve,
        width=5, height=4)
+
+# wilcoxon test of relative abundance
+libsizes <- rowSums(plaque_counts)
+pvals <- rep(0, nrow(subset_ko_df))
+for(j in 1:nrow(subset_ko_df)){
+  
+  feature_name <- subset_ko_df$KEGG[j]
+  relabd <- plaque_counts[, feature_name] / libsizes
+  test_result <- wilcox.test(relabd, metadata_plaque_yr1$Case_status)
+  pvals[j] <- test_result$p.value
+  
+}
+
+subset_ko_df$Pval <- pvals
+
 
 write.csv(subset_ko_df, "lasso_logistic/KEGG/plaque_ko_biomarkers.csv", row.names=FALSE,
           quote=FALSE)
