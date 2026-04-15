@@ -3,6 +3,7 @@ rm(list=ls())
 library(BenchmarkDenoise)
 library(ggplot2)
 library(dplyr)
+library(openxlsx)
 
 # load observed counts and metadata
 saliva_counts <- read.table("counts_cleaning/saliva_ko_abundance_subset_corrected.tsv",
@@ -18,15 +19,18 @@ saliva_counts_imputed <- simple_impute(saliva_counts, scale=0.5) |> t()
 
 # load DAA results
 DAA_ko_results <- read.csv("DAA/DAA_ko_saliva.csv")
+subset_ko <- DAA_ko_results$Taxa
 marker_ko <- DAA_ko_results$Taxa[DAA_ko_results$pval < 0.05]
 
 
 # start with DAA markers
-saliva_counts <- saliva_counts[, marker_ko]
-saliva_counts_imputed <- saliva_counts_imputed[, marker_ko]
+saliva_counts <- saliva_counts[, subset_ko]
+saliva_counts_imputed <- saliva_counts_imputed[, subset_ko]
 
+# clr transformation before selecting marker KEGGs
 clr_saliva_counts <- clr_transform(saliva_counts)
 colnames(clr_saliva_counts) <- colnames(saliva_counts)
+clr_saliva_counts <- clr_saliva_counts[, marker_ko]
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
 colnames(coefficients) <- colnames(clr_saliva_counts)
 train_auc <- rep(0, 100)
@@ -82,21 +86,30 @@ subset_ko_df_denominator <- subset_ko_df %>% filter(Direction == "Enriched in Co
 ko_numerator <- subset_ko_df_numerator$KEGG
 ko_denominator <- subset_ko_df_denominator$KEGG
 
-ko_count_numerator <- saliva_counts_imputed[, ko_numerator]
-ko_count_denominator <- saliva_counts_imputed[, ko_denominator]
-
-# confirm that it is not the batch effects that affect the presence absence issue of K00260
+# confirm that it is not the batch effects that affect the presence absence issue of KEGGs
 predictors_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
                    Batch=saliva_batchinfo$Sample_type)
 predictors_df <- cbind(predictors_df, saliva_counts[, subset_ko_df$KEGG])
-presence_df <- predictors_df %>% group_by(CaseStatus, Batch) %>% summarise(presence=mean(K00260 > 0))
+predictors_df_batch1 <- predictors_df %>% filter(Batch == "human saliva")
+predictors_df_batch2 <- predictors_df %>% filter(Batch == "DNA")
+ctable_list <- list()
+for (KEGG in c(ko_numerator, ko_denominator)){
+  ctable_list[[sprintf("Batch1_%s", KEGG)]] <- as.data.frame(table(predictors_df_batch1$CaseStatus, 
+                                                                   predictors_df_batch1[, KEGG] > 0))
+  ctable_list[[sprintf("Batch2_%s", KEGG)]] <- as.data.frame(table(predictors_df_batch2$CaseStatus, 
+                                                                   predictors_df_batch2[, KEGG] > 0))
+  
+}
+write.xlsx(ctable_list, file="lasso_logistic/KEGG/saliva_ko_presence_absence.xlsx")
 
+
+# fit logistic regression
+ko_count_numerator <- rowSums(saliva_counts_imputed[, ko_numerator, drop=FALSE])
+ko_count_denominator <- rowSums(saliva_counts_imputed[, ko_denominator, drop=FALSE])
 
 final_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
                        Batch=saliva_batchinfo$Sample_type,
-                       lognumerator=log(rowSums(ko_count_numerator)),
-                       logdenominator=log(ko_count_denominator))
-final_df$LogRatio <- final_df$lognumerator - final_df$logdenominator
+                       LogRatio=log(ko_count_numerator) - log(ko_count_denominator))
 
 final_df$Outcome <- 1*(final_df$CaseStatus == "Case")
 
@@ -135,6 +148,21 @@ roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
 ggsave(filename="lasso_logistic/KEGG/saliva_AUROC.svg", roc_curve,
        width=5, height=4)
 
+# wilcoxon test of relative abundance
+libsizes <- rowSums(saliva_counts)
+pvals <- rep(0, nrow(subset_ko_df))
+for(j in 1:nrow(subset_ko_df)){
+  
+  feature_name <- subset_ko_df$KEGG[j]
+  relabd <- saliva_counts[, feature_name] / libsizes
+  test_result <- wilcox.test(relabd, metadata_saliva_yr1$Case_status)
+  pvals[j] <- test_result$p.value
+  
+}
+
+subset_ko_df$Pval <- pvals
+
 write.csv(subset_ko_df, "lasso_logistic/KEGG/saliva_ko_biomarkers.csv", row.names=FALSE,
           quote=FALSE)
+
 

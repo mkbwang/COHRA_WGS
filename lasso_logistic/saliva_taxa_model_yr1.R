@@ -3,18 +3,23 @@ rm(list=ls())
 library(BenchmarkDenoise)
 library(ggplot2)
 library(dplyr)
+library(openxlsx)
 
 # load observed counts and metadata
 saliva_counts <- read.table("counts_cleaning/saliva_taxa_count_subset_corrected.tsv",
                             header=TRUE, sep="\t", row.names=1) |> as.matrix()
 metadata_saliva_yr1 <- read.table("counts_cleaning/strata/metadata_saliva_yr1.tsv",
                                   header=T, sep='\t')
+saliva_batchinfo <- read.csv("metadata/saliva_batchinfo.csv")
+rownames(saliva_batchinfo) <- saliva_batchinfo$Sample_ID
+saliva_batchinfo <- saliva_batchinfo[rownames(saliva_counts), ]
 diagnoses <- (metadata_saliva_yr1$Case_status)
 saliva_counts_imputed <- simple_impute(saliva_counts, scale=0.5) |> t()
 
 
 # load DAA results
 DAA_taxa_results <- read.csv("DAA/DAA_taxa_saliva.csv")
+subset_taxa <- DAA_taxa_results$Taxa
 marker_taxa <- DAA_taxa_results$Taxa[DAA_taxa_results$pval < 0.1]
 
 
@@ -25,11 +30,14 @@ shorten_names <- function(longname){
 species_names <- sapply(colnames(saliva_counts), shorten_names) |> unname()
 colnames(saliva_counts) <- colnames(saliva_counts_imputed) <- species_names
 
-saliva_counts <- saliva_counts[, marker_taxa]
-saliva_counts_imputed <- saliva_counts_imputed[, marker_taxa]
+saliva_counts <- saliva_counts[, subset_taxa]
+saliva_counts_imputed <- saliva_counts_imputed[, subset_taxa]
+
 
 clr_saliva_counts <- clr_transform(saliva_counts_imputed)
 colnames(clr_saliva_counts) <- colnames(saliva_counts)
+clr_saliva_counts <- clr_saliva_counts[, marker_taxa]
+
 coefficients <- matrix(0, nrow=100, ncol=ncol(clr_saliva_counts))
 colnames(coefficients) <- colnames(clr_saliva_counts)
 train_auc <- rep(0, 100)
@@ -83,6 +91,23 @@ subset_taxa_df_denominator <- subset_taxa_df %>% filter(Direction == "Enriched i
 taxa_numerator <- subset_taxa_df_numerator$Taxa
 taxa_denominator <- subset_taxa_df_denominator$Taxa
 
+# confirm that it is not the batch effects that affect the presence absence issue of taxa
+predictors_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
+                            Batch=saliva_batchinfo$Sample_type)
+predictors_df <- cbind(predictors_df, saliva_counts[, subset_taxa_df$Taxa])
+predictors_df_batch1 <- predictors_df %>% filter(Batch == "human saliva")
+predictors_df_batch2 <- predictors_df %>% filter(Batch == "DNA")
+ctable_list <- list()
+for (taxa in c(taxa_numerator, taxa_denominator)){
+  ctable_list[[sprintf("B1_%s", taxa)]] <- as.data.frame(table(predictors_df_batch1$CaseStatus, 
+                                                                   predictors_df_batch1[, taxa] > 0))
+  ctable_list[[sprintf("B2_%s", taxa)]] <- as.data.frame(table(predictors_df_batch2$CaseStatus, 
+                                                                   predictors_df_batch2[, taxa] > 0))
+  
+}
+write.xlsx(ctable_list, file="lasso_logistic/taxa/saliva_taxa_presence_absence.xlsx")
+
+
 taxa_count_numerator <- rowSums(saliva_counts_imputed[, taxa_numerator])
 taxa_count_denominator <- rowSums(saliva_counts_imputed[, taxa_denominator])
 
@@ -90,11 +115,14 @@ taxa_count_denominator <- rowSums(saliva_counts_imputed[, taxa_denominator])
 final_df <- data.frame(CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"),
                        LogRatio=log(taxa_count_numerator) - log(taxa_count_denominator))
 
+
 marker_boxplot <- ggplot(final_df, aes(x=CaseStatus, y=LogRatio)) + 
   geom_boxplot() + xlab("Status") + ylab("Biomarker Value")
 
 ggsave(filename="lasso_logistic/taxa/saliva_biomarker_boxplot.svg", marker_boxplot,
        width=4, height=4)
+
+final_df$CaseStatus <- metadata_saliva_yr1$Case_status
 
 logit_regression <-  glm(CaseStatus~LogRatio, data=final_df, family="binomial")
 
@@ -124,6 +152,35 @@ roc_curve <- ggplot(roc_df, aes(x = 1 - Specificity, y = Sensitivity)) +
 ggsave(filename="lasso_logistic/taxa/saliva_AUROC.svg", roc_curve,
        width=5, height=4)
 
+
+# wilcoxon test of relative abundance
+libsizes <- rowSums(saliva_counts)
+pvals <- rep(0, nrow(subset_taxa_df))
+for(j in 1:nrow(subset_taxa_df)){
+  
+  feature_name <- subset_taxa_df$Taxa[j]
+  relabd <- saliva_counts[, feature_name] / libsizes
+  test_result <- wilcox.test(relabd, metadata_saliva_yr1$Case_status)
+  pvals[j] <- test_result$p.value
+  
+}
+
+subset_taxa_df$Pval <- pvals
+
 write.csv(subset_taxa_df, "lasso_logistic/taxa/saliva_taxa_biomarkers.csv", row.names=FALSE,
           quote=FALSE)
 
+
+## extra check of haemophylus parainfluenzae
+
+hp_relative_abundance <- saliva_counts_imputed[, "Haemophilus_parainfluenzae"] / rowSums(saliva_counts_imputed)
+
+hp_df <- data.frame(RA=log(hp_relative_abundance),
+                    presence=saliva_counts[, "Haemophilus_parainfluenzae"] > 0,
+                    CaseStatus=ifelse(metadata_saliva_yr1$Case_status == 1, "Case", "Control"))
+
+hpRA_boxplot <- ggplot(hp_df, aes(x=CaseStatus, y=RA)) + 
+  geom_boxplot() + xlab("Status") + ylab("Log H_parainfluenzae RA")
+
+table(hp_df$CaseStatus, hp_df$presence)
+chisq.test(hp_df$CaseStatus, hp_df$presence)
